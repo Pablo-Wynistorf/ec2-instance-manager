@@ -104,6 +104,7 @@ const loginHtml = `
   </html>
 `;
 
+
 app.get('/', checkAuth, async (req, res) => {
   try {
     const instances = await getInstancesInVPC(vpcId);
@@ -118,9 +119,20 @@ app.get('/', checkAuth, async (req, res) => {
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.css" />
         <style>
           #noty-top-right { top: 16px; right: 16px; }
+          #countdown {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 14px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+          }
         </style>
       </head>
       <body class="bg-gray-900 text-gray-100 font-sans leading-normal tracking-normal">
+        <div id="countdown">Refreshing in: 10 seconds</div>
         <div class="container mx-auto p-6">
           <div class="flex justify-between items-center mb-6">
             <button id="logoutButton" class="p-2 bg-red-600 text-white rounded-md hover:bg-red-700">
@@ -167,13 +179,16 @@ app.get('/', checkAuth, async (req, res) => {
         `;
       }
 
-      actionButtons += `
-        <form action="/${instanceId}/terminate" method="get" class="mt-4">
-          <label for="confirm-text" class="block text-gray-300 mb-2">Type the <span class="font-semibold">instance id</span> to confirm termination:</label>
-          <input type="text" id="confirm-text" name="confirmText" class="bg-gray-700 text-gray-100 p-2 rounded w-full mb-2" required>
-          <button type="submit" class="bg-red-800 text-gray-100 py-2 px-4 rounded hover:bg-red-900">Terminate</button>
-        </form>
-      `;
+      // Only add the terminate option if the instance is not in "shutting-down" state
+      if (state !== 'shutting-down') {
+        actionButtons += `
+          <form action="/${instanceId}/terminate" method="get" class="mt-4">
+            <label for="confirm-text" class="block text-gray-300 mb-2">Type the <span class="font-semibold">instance id</span> to confirm termination:</label>
+            <input type="text" id="confirm-text" name="confirmText" class="bg-gray-700 text-gray-100 p-2 rounded w-full mb-2" required>
+            <button type="submit" class="bg-red-800 text-gray-100 py-2 px-4 rounded hover:bg-red-900">Terminate</button>
+          </form>
+        `;
+      }
 
       html += `
         <div class="bg-gray-800 shadow-lg rounded-lg p-6">
@@ -212,9 +227,6 @@ app.get('/', checkAuth, async (req, res) => {
               progressBar: true
             }).show();
             if (result.success) {
-              setTimeout(() => {
-                window.location.href = '/';
-              }, 3000);
             }
           });
           
@@ -230,9 +242,6 @@ app.get('/', checkAuth, async (req, res) => {
               progressBar: true
             }).show();
             if (result.success) {
-              setTimeout(() => {
-                window.location.href = '/';
-              }, 3000);
             }
           });
           
@@ -263,6 +272,19 @@ app.get('/', checkAuth, async (req, res) => {
             params.delete('type');
             window.history.replaceState({}, document.title, window.location.pathname + (params.toString() ? '?' + params.toString() : ''));
           }
+
+          let countdown = 10;
+          const countdownElement = document.getElementById('countdown');
+          
+          const countdownInterval = setInterval(() => {
+            countdown--;
+            countdownElement.textContent = \`Refreshing in: \${countdown} seconds\`;
+
+            if (countdown <= 0) {
+              clearInterval(countdownInterval);
+              location.reload();
+            }
+          }, 1000);
         </script>
       </body>
       </html>
@@ -272,6 +294,7 @@ app.get('/', checkAuth, async (req, res) => {
     res.status(500).send('Error retrieving instances');
   }
 });
+
 
 
 
