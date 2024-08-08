@@ -11,7 +11,7 @@ const app = express();
 AWS.config.update({ region: 'eu-central-2' });
 const ec2 = new AWS.EC2();
 
-const vpcId = process.env.VPC_ID;
+const VPC_ID = process.env.VPC_ID;
 const ALLOWED_USERNAMES = process.env.ALLOWED_USERNAMES ? process.env.ALLOWED_USERNAMES.split(',') : [];
 const PASSWORD = process.env.PASSWORD;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -21,12 +21,12 @@ const WINDOWS_LAUNCH_TEMPLATE_ID = process.env.WINDOWS_LAUNCH_TEMPLATE_ID;
 app.use(express.json());
 app.use(cookieParser());
 
-const getInstancesInVPC = async (vpcId) => {
+const getInstancesInVPC = async (VPC_ID) => {
   const params = {
     Filters: [
       {
         Name: 'vpc-id',
-        Values: [vpcId],
+        Values: [VPC_ID],
       },
     ],
   };
@@ -124,7 +124,7 @@ const loginHtml = `
 app.get('/', checkAuth, async (req, res) => {
   const username = req.username;
   try {
-    const instances = await getInstancesInVPC(vpcId);
+    const instances = await getInstancesInVPC(VPC_ID);
     
     const filteredInstances = instances.filter(instance => {
       const tags = instance.Tags || [];
