@@ -113,7 +113,7 @@ app.get('/', checkAuth, async (req, res) => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Can's EC2 Instances</title>
+        <title>EC2 Instance Manager</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.css" />
         <style>
@@ -141,7 +141,7 @@ app.get('/', checkAuth, async (req, res) => {
               </button>
             </div>
           </div>
-          <h1 class="text-3xl font-bold mb-6">Can's EC2 Instances</h1>
+          <h1 class="text-3xl font-bold mb-6">EC2 Instances</h1>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     `;
 
@@ -209,7 +209,9 @@ app.get('/', checkAuth, async (req, res) => {
               progressBar: true
             }).show();
             if (result.success) {
-              window.location.href = '/';
+              setTimeout(() => {
+                window.location.href = '/';
+              }, 3000);
             }
           });
           
@@ -225,7 +227,9 @@ app.get('/', checkAuth, async (req, res) => {
               progressBar: true
             }).show();
             if (result.success) {
-              window.location.href = '/';
+              setTimeout(() => {
+                window.location.href = '/';
+              }, 3000);
             }
           });
           
@@ -337,14 +341,14 @@ app.get('/:instanceId/:action', checkAuth, async (req, res) => {
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 app.get('/download-ssh-key', checkAuth, (req, res) => {
-  const keyFilePath = path.join(__dirname, 'instance_access', 'ssh-can.pem');
+  const keyFilePath = path.join(__dirname, 'instance_access', 'ssh.pem');
 
   // Check if file exists
   if (!fs.existsSync(keyFilePath)) {
     return res.status(404).send('SSH key file not found');
   }
 
-  res.download(keyFilePath, 'ssh-can.pem', (err) => {
+  res.download(keyFilePath, 'ssh.pem', (err) => {
     if (err) {
       console.error('Error downloading SSH key:', err);
       res.status(500).send('Error downloading SSH key');
