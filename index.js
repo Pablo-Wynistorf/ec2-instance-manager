@@ -178,8 +178,11 @@ app.get('/', checkAuth, async (req, res) => {
       html += `
         <div class="bg-gray-800 shadow-lg rounded-lg p-6">
           <h2 class="text-xl font-semibold mb-2">Instance ID: ${instanceId}</h2>
-          <p class="text-gray-300 mb-2">Name: ${instanceName}</p>
           <p class="text-gray-300 mb-2">State: <span class="font-semibold ${state === 'running' ? 'text-green-400' : 'text-red-400'}">${state}</span></p>
+          <p class="text-gray-300 mb-2">Name: ${instanceName}</p>
+          <p class="text-gray-300 mb-2">
+            Username: ${instanceName === 'LINUX-INSTANCE' ? 'ubuntu' : instanceName === 'WINDOWS-INSTANCE' ? 'Administrator' : ''}
+          </p>
           <p class="text-gray-300 mb-2">Public IP: ${publicIp}</p>
           <p class="text-gray-300 mb-2">Private IP: ${privateIp}</p>
           ${actionButtons}
