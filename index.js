@@ -63,6 +63,7 @@ const loginHtml = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.css" />
   </head>
   <body class="bg-gray-900 flex justify-center items-center h-screen">
     <div class="bg-gray-800 text-gray-100 p-8 rounded-lg shadow-lg max-w-md w-full">
@@ -83,6 +84,7 @@ const loginHtml = `
         </button>
       </form>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.js"></script>
     <script>
       document.getElementById('loginForm').addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -96,13 +98,21 @@ const loginHtml = `
         if (response.status === 200) {
           window.location.href = '/';
         } else {
-          alert(result.message);
+          new Noty({
+            text: result.message,
+            type: 'error',
+            layout: 'topRight',
+            timeout: 5000,
+            theme: 'metroui',
+            progressBar: true
+          }).show();
         }
       });
     </script>
   </body>
   </html>
 `;
+
 
 
 app.get('/', checkAuth, async (req, res) => {
