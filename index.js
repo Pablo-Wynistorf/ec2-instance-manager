@@ -12,6 +12,7 @@ AWS.config.update({ region: 'eu-central-2' });
 const ec2 = new AWS.EC2();
 
 const vpcId = process.env.VPC_ID;
+const ALLOWED_USERNAMES = process.env.ALLOWED_USERNAMES ? process.env.ALLOWED_USERNAMES.split(',') : [];
 const PASSWORD = process.env.PASSWORD;
 const JWT_SECRET = process.env.JWT_SECRET;
 const LINUX_LAUNCH_TEMPLATE_ID = process.env.LINUX_LAUNCH_TEMPLATE_ID;
@@ -39,15 +40,14 @@ const getInstancesInVPC = async (vpcId) => {
   }
 };
 
-// Middleware to check for access token
 const checkAuth = (req, res, next) => {
   const token = req.cookies.access_token;
   if (token) {
-    jwt.verify(token, JWT_SECRET, (err, user) => {
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
       if (err) {
         return res.status(403).send(loginHtml);
       }
-      req.user = user;
+      req.username = decoded.username;
       next();
     });
   } else {
@@ -70,6 +70,13 @@ const loginHtml = `
       <h2 class="text-3xl font-bold mb-6">Login</h2>
       <form id="loginForm">
         <input 
+          type="text" 
+          id="username" 
+          placeholder="Enter username" 
+          required 
+          class="w-full p-3 mb-4 bg-gray-700 border border-gray-600 rounded-md text-gray-100"
+        >
+        <input 
           type="password" 
           id="password" 
           placeholder="Enter password" 
@@ -88,11 +95,12 @@ const loginHtml = `
     <script>
       document.getElementById('loginForm').addEventListener('submit', async (event) => {
         event.preventDefault();
+        const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
         const response = await fetch('/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password })
+          body: JSON.stringify({ username, password })
         });
         const result = await response.json();
         if (response.status === 200) {
@@ -113,11 +121,17 @@ const loginHtml = `
   </html>
 `;
 
-
-
 app.get('/', checkAuth, async (req, res) => {
+  const username = req.username;
   try {
     const instances = await getInstancesInVPC(vpcId);
+    
+    const filteredInstances = instances.filter(instance => {
+      const tags = instance.Tags || [];
+      const usernameTag = tags.find(tag => tag.Key === 'username');
+      return usernameTag && usernameTag.Value === username;
+    });
+
     let html = `
       <!DOCTYPE html>
       <html lang="en">
@@ -167,7 +181,7 @@ app.get('/', checkAuth, async (req, res) => {
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     `;
 
-    instances.forEach(instance => {
+    filteredInstances.forEach(instance => {
       const instanceId = instance.InstanceId;
       const state = instance.State.Name;
       const instanceName = instance.Tags.find(tag => tag.Key === 'Name')?.Value || 'Unnamed';
@@ -189,7 +203,6 @@ app.get('/', checkAuth, async (req, res) => {
         `;
       }
 
-      // Only add the terminate option if the instance is not in "shutting-down" state
       if (state !== 'shutting-down') {
         actionButtons += `
           <form action="/${instanceId}/terminate" method="get" class="mt-4">
@@ -306,46 +319,73 @@ app.get('/', checkAuth, async (req, res) => {
 });
 
 
-
-
-app.post('/ec2/launch/linux', checkAuth, async (req, res) => {
+async function countUserInstances(username) {
   const params = {
-    LaunchTemplate: {
-      LaunchTemplateId: LINUX_LAUNCH_TEMPLATE_ID,
-    },
-    MinCount: 1,
-    MaxCount: 1
+    Filters: [
+      {
+        Name: 'tag:username',
+        Values: [username]
+      },
+      {
+        Name: 'instance-state-name',
+        Values: ['pending', 'running']
+      }
+    ]
   };
 
+  const data = await ec2.describeInstances(params).promise();
+  const instances = data.Reservations.flatMap(reservation => reservation.Instances);
+  return instances.length;
+}
+
+async function launchInstance(req, res, launchTemplateId) {
+  const username = req.username;
+
   try {
+    const count = await countUserInstances(username);
+
+    if (count >= 4) {
+      return res.json({ success: false, message: 'You are permitted to launch only four instances at a time' });
+    }
+
+    const params = {
+      LaunchTemplate: {
+        LaunchTemplateId: launchTemplateId,
+      },
+      MinCount: 1,
+      MaxCount: 1,
+      TagSpecifications: [
+        {
+          ResourceType: 'instance',
+          Tags: [
+            {
+              Key: 'username',
+              Value: username
+            },
+          ]
+        }
+      ]
+    };
+
     await ec2.runInstances(params).promise();
-    res.json({ success: true, message: 'Linux instance launched successfully' });
+    res.json({ success: true, message: 'Instance launched successfully' });
   } catch (error) {
-    console.error('Error launching Linux instance:', error);
-    res.json({ success: false, message: 'Error launching Linux instance' });
+    console.error('Error launching instance:', error);
+    res.json({ success: false, message: 'Error launching instance' });
   }
+}
+
+app.post('/ec2/launch/linux', checkAuth, (req, res) => {
+  launchInstance(req, res, LINUX_LAUNCH_TEMPLATE_ID);
 });
 
-app.post('/ec2/launch/windows', checkAuth, async (req, res) => {
-  const params = {
-    LaunchTemplate: {
-      LaunchTemplateId: WINDOWS_LAUNCH_TEMPLATE_ID,
-    },
-    MinCount: 1,
-    MaxCount: 1
-  };
-
-  try {
-    await ec2.runInstances(params).promise();
-    res.json({ success: true, message: 'Windows instance launched successfully' });
-  } catch (error) {
-    console.error('Error launching Windows instance:', error);
-    res.json({ success: false, message: 'Error launching Windows instance' });
-  }
+app.post('/ec2/launch/windows', checkAuth, (req, res) => {
+  launchInstance(req, res, WINDOWS_LAUNCH_TEMPLATE_ID);
 });
 
 
 app.get('/:instanceId/:action', checkAuth, async (req, res) => {
+  const username = req.username;
   const { instanceId, action } = req.params;
   const validActions = ['start', 'stop', 'terminate'];
 
@@ -354,6 +394,14 @@ app.get('/:instanceId/:action', checkAuth, async (req, res) => {
   }
 
   try {
+    const instanceData = await ec2.describeInstances({ InstanceIds: [instanceId] }).promise();
+    const tags = instanceData.Reservations[0].Instances[0].Tags;
+    const usernameTag = tags.find(tag => tag.Key === 'username');
+
+    if (!usernameTag || usernameTag.Value !== username) {
+      return res.redirect('/?alert=Unauthorized%20action&type=error');
+    }
+
     if (action === 'start') {
       await ec2.startInstances({ InstanceIds: [instanceId] }).promise();
       res.redirect('/?alert=Instance%20started%20successfully&type=success');
@@ -409,9 +457,14 @@ app.get('/download-windows-password', checkAuth, (req, res) => {
 });
 
 app.post('/login', (req, res) => {
-  const { password } = req.body;
+  const { username, password } = req.body;
+
+  if (!ALLOWED_USERNAMES.includes(username)) {
+    return res.status(403).json({ message: 'User doesnt exist' });
+  }
+
   if (password === PASSWORD) {
-    const token = jwt.sign({ user: 'admin' }, JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ username: username }, JWT_SECRET, { expiresIn: '1h' });
     res.cookie('access_token', token, { httpOnly: true });
     res.status(200).json({ message: 'Login successful' });
   } else {
