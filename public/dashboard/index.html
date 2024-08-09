@@ -115,6 +115,7 @@
           const publicIp = instance.PublicIpAddress || 'N/A';
           const privateIp = instance.PrivateIpAddress || 'N/A';
           const launchTime = new Date(instance.LaunchTime).toLocaleString();
+          const owner = instance.Tags.find(tag => tag.Key === 'username')?.Value || 'N/A';
 
           let actionButtons = '';
           if (state === 'running') {
@@ -140,6 +141,7 @@
               <p class="text-gray-300 mb-2">Public IP: ${publicIp}</p>
               <p class="text-gray-300 mb-2">Private IP: ${privateIp}</p>
               <p class="text-gray-300 mb-2">Launch Time: ${launchTime}</p>
+              <p class="text-gray-300 mb-2">Instance owner: ${owner}</p>
               ${actionButtons}
             </div>
           `;
