@@ -26,12 +26,14 @@ const OAUTH_REDIRECT_URL = process.env.OAUTH_REDIRECT_URL;
 app.use(express.json());
 app.use(cookieParser());
 
-app.use('/', checkAuth, express.static(path.join(__dirname, 'public/dashboard')));
+app.get('/', (req, res) => {
+  res.redirect('/login');
+});
 
+app.use('/dashboard', checkAuth, express.static(path.join(__dirname, 'public/dashboard')));
 app.use('/login', express.static(path.join(__dirname, 'public/login')));
 
-
-// Check token
+// Check token and roles
 async function checkAuth(req, res, next) {
   const access_token = req.cookies.access_token;
   if (!access_token) {
@@ -57,19 +59,19 @@ async function checkAuth(req, res, next) {
     req.username = username;
     req.roles = roles;
 
-    if (!roles.includes('standardUser')) {
-      return res.status(403).json({ error: "You are not authorized to access this ressource" });
+    // You can add any role-based logic here
+    if (!roles.includes('standardUser') && !roles.includes('adminUser')) {
+      return res.status(403).json({ error: "You are not authorized to access this resource" });
     }
 
-    next(); 
+    next();
   } catch (error) {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 }
 
-
 // Authenticate endpoint
-app.get("/api/auth", async (req, res) => {
+app.get('/api/auth', async (req, res) => {
   if (req.cookies.refresh_token !== undefined) {
     try {
       const response = await fetch(OAUTH_TOKEN_URL, {
@@ -96,7 +98,7 @@ app.get("/api/auth", async (req, res) => {
       res.cookie('access_token', access_token, { httpOnly: true, maxAge: 50 * 60 * 1000 });
       res.cookie('refresh_token', refresh_token, { httpOnly: true, maxAge: 20 * 24 * 60 * 60 * 1000 });
 
-      return res.redirect("/");
+      return res.redirect('/dashboard');
     } catch (error) {
       return res.redirect('/login');
     }
@@ -104,9 +106,8 @@ app.get("/api/auth", async (req, res) => {
   return res.redirect(`${OAUTH_AUTHORIZATION_URL}?client_id=${OAUTH_CLIENT_ID}&redirect_uri=${OAUTH_REDIRECT_URL}`);
 });
 
-
 // Callback endpoint
-app.get("/callback", async (req, res) => {
+app.get('/callback', async (req, res) => {
   const { code } = req.query;
 
   if (!code) {
@@ -138,7 +139,7 @@ app.get("/callback", async (req, res) => {
     res.cookie('access_token', access_token, { httpOnly: true, maxAge: 50 * 60 * 1000 });
     res.cookie('refresh_token', refresh_token, { httpOnly: true, maxAge: 20 * 24 * 60 * 60 * 1000 });
 
-    res.redirect("/");
+    res.redirect('/dashboard');
 
   } catch (error) {
     return res.redirect('/login'); 
@@ -152,7 +153,7 @@ app.post("/logout", async (req, res) => {
   res.status(200).json({ message: "Logged out successfully" });
 });
 
-
+// Helper function to get instances in a VPC
 const getInstancesInVPC = async (VPC_ID) => {
   const params = {
     Filters: [
@@ -172,27 +173,7 @@ const getInstancesInVPC = async (VPC_ID) => {
   }
 };
 
-
-app.get('/api/ec2/instances', checkAuth, async (req, res) => {
-  const username = req.username;
-  try {
-    const instances = await getInstancesInVPC(VPC_ID);
-
-    const filteredInstances = instances.filter(instance => {
-      const tags = instance.Tags || [];
-      const usernameTag = tags.find(tag => tag.Key === 'username');
-      return usernameTag && usernameTag.Value === username;
-    });
-
-    res.json(filteredInstances);
-  } catch (error) {
-    console.error('Error fetching instances:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-
-
+// Count user instances
 async function countUserInstances(username) {
   const params = {
     Filters: [
@@ -212,6 +193,7 @@ async function countUserInstances(username) {
   return instances.length;
 }
 
+// Launch EC2 instance
 async function launchInstance(req, res, launchTemplateId) {
   const username = req.username;
 
@@ -234,7 +216,7 @@ async function launchInstance(req, res, launchTemplateId) {
           Tags: [
             {
               Key: 'username',
-              Value: username
+              Value: username,
             },
           ]
         }
@@ -249,6 +231,47 @@ async function launchInstance(req, res, launchTemplateId) {
   }
 }
 
+// Get EC2 instance data
+app.get('/api/ec2/instances', checkAuth, async (req, res) => {
+  const username = req.username;
+  const roles = req.roles;
+
+  try {
+    if (!username) {
+      return res.status(400).json({ error: 'Username not provided' });
+    }
+
+    const instances = await getInstancesInVPC(VPC_ID);
+
+    // Filter instances based on roles
+    const filteredInstances = roles.includes('adminUser')
+      ? instances
+      : instances.filter(instance => {
+          const tags = instance.Tags || [];
+          const usernameTag = tags.find(tag => tag.Key === 'username');
+          return usernameTag && usernameTag.Value === username;
+        });
+
+    // Format response to include only necessary fields
+    const formattedInstances = filteredInstances.map(instance => ({
+      InstanceId: instance.InstanceId,
+      State: instance.State.Name,
+      Tags: instance.Tags || [],
+      PublicIpAddress: instance.PublicIpAddress || 'N/A',
+      PrivateIpAddress: instance.PrivateIpAddress || 'N/A',
+      LaunchTime: instance.LaunchTime ? new Date(instance.LaunchTime).toISOString() : null
+    }));
+
+    res.json(formattedInstances);
+  } catch (error) {
+    console.error('Error fetching instances:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
+
+// Launch EC2 instance
 app.post('/api/ec2/launch', checkAuth, async (req, res) => {
   const instanceType = req.body.instanceType;
 
@@ -261,10 +284,10 @@ app.post('/api/ec2/launch', checkAuth, async (req, res) => {
   }
 });
 
-
-
+// Manage EC2 instance
 app.post('/api/ec2/manage', checkAuth, async (req, res) => {
   const username = req.username;
+  const roles = req.roles;
   const { instanceId, action, confirmText } = req.body;
   const validActions = ['start', 'stop', 'terminate'];
 
@@ -274,14 +297,17 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
   }
 
   try {
-    // Describe the instance
-    const instanceData = await ec2.describeInstances({ InstanceIds: [instanceId] }).promise();
-    const tags = instanceData.Reservations[0].Instances[0].Tags;
-    const usernameTag = tags.find(tag => tag.Key === 'username');
+    // Describe the instance if not an admin user
+    let instanceData;
+    if (!roles.includes('adminUser')) {
+      instanceData = await ec2.describeInstances({ InstanceIds: [instanceId] }).promise();
+      const tags = instanceData.Reservations[0].Instances[0].Tags;
+      const usernameTag = tags.find(tag => tag.Key === 'username');
 
-    // Check if the action is authorized
-    if (!usernameTag || usernameTag.Value !== username) {
-      return res.status(401).json({ message: 'Unauthorized action', type: 'error' });
+      // Check if the action is authorized
+      if (!usernameTag || usernameTag.Value !== username) {
+        return res.status(401).json({ message: 'Unauthorized action', type: 'error' });
+      }
     }
 
     // Perform the requested action
@@ -304,7 +330,7 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
   }
 });
 
-
+// Download SSH key
 app.get('/download-ssh-key', checkAuth, (req, res) => {
   const keyFilePath = path.join(__dirname, 'instance_access', 'ssh.pem');
 
@@ -321,6 +347,7 @@ app.get('/download-ssh-key', checkAuth, (req, res) => {
   });
 });
 
+// Download Windows password
 app.get('/download-windows-password', checkAuth, (req, res) => {
   const keyFilePath = path.join(__dirname, 'instance_access', 'windows-password.txt');
 
@@ -336,6 +363,5 @@ app.get('/download-windows-password', checkAuth, (req, res) => {
     }
   });
 });
-
 
 export const handler = serverless(app);

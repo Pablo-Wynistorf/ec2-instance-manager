@@ -69,7 +69,7 @@
 
     document.getElementById('logoutButton').addEventListener('click', async () => {
       await fetch('/logout', { method: 'POST', credentials: 'include' });
-      window.location.href = '/';
+      window.location.href = '/login';
     });
 
     document.getElementById('launchLinuxButton').addEventListener('click', () => handleLaunch('linux'));
@@ -110,10 +110,11 @@
         container.innerHTML = ''; // Clear existing instances
         instances.forEach(instance => {
           const instanceId = instance.InstanceId;
-          const state = instance.State.Name;
+          const state = instance.State;
           const instanceName = instance.Tags.find(tag => tag.Key === 'Name')?.Value || 'Unnamed';
           const publicIp = instance.PublicIpAddress || 'N/A';
           const privateIp = instance.PrivateIpAddress || 'N/A';
+          const launchTime = new Date(instance.LaunchTime).toLocaleString();
 
           let actionButtons = '';
           if (state === 'running') {
@@ -138,6 +139,7 @@
               </p>
               <p class="text-gray-300 mb-2">Public IP: ${publicIp}</p>
               <p class="text-gray-300 mb-2">Private IP: ${privateIp}</p>
+              <p class="text-gray-300 mb-2">Launch Time: ${launchTime}</p>
               ${actionButtons}
             </div>
           `;
