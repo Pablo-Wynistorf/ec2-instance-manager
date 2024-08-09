@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EC2 Instance Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.css" />
+  <style>
+    #noty-top-right { top: 16px; right: 16px; }
+    #countdown {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      font-size: 14px;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 5px 10px;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans leading-normal tracking-normal">
+  <div id="countdown">Refreshing in: 10 seconds</div>
+  <div class="container mx-auto p-6">
+    <div class="flex justify-between items-center mb-6">
+      <button id="logoutButton" class="p-2 bg-red-600 text-white rounded-md hover:bg-red-700">
+        Logout
+      </button>
+      <div class="flex space-x-2">
+        <button id="downloadWindowsPasswordButton" class="p-2 bg-white text-gray-800 rounded-md hover:bg-gray-200">
+          Download Windows Password
+        </button>
+        <button id="downloadSshKeyButton" class="p-2 bg-white text-gray-800 rounded-md hover:bg-gray-200">
+          Download SSH Key
+        </button>
+        <button id="launchLinuxButton" class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+          Launch Linux
+        </button>
+        <button id="launchWindowsButton" class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+          Launch Windows
+        </button>
+      </div>
+    </div>
+    <h1 class="text-3xl font-bold mb-6">EC2 Instances</h1>
+    <div id="instances" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.js"></script>
+  <script>
+    // JavaScript code to handle actions and updates
+    document.getElementById('logoutButton').addEventListener('click', async () => {
+      await fetch('/logout', { method: 'POST', credentials: 'include' });
+      window.location.href = '/';
+    });
+
+    document.getElementById('launchLinuxButton').addEventListener('click', () => handleLaunch('linux'));
+
+    document.getElementById('launchWindowsButton').addEventListener('click', () => handleLaunch('windows'));
+
+    document.getElementById('downloadSshKeyButton').addEventListener('click', () => {
+      window.location.href = '/download-ssh-key';
+    });
+
+    document.getElementById('downloadWindowsPasswordButton').addEventListener('click', () => {
+      window.location.href = '/download-windows-password';
+    });
+
+    async function handleLaunch(instanceType) {
+      const response = await fetch('/api/ec2/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceType })
+      });
+      const result = await response.json();
+      new Noty({
+        text: result.message,
+        type: result.success ? 'success' : 'error',
+        layout: 'topRight',
+        timeout: 5000,
+        theme: 'metroui',
+        progressBar: true
+      }).show();
+    }
+
+    async function fetchInstances() {
+      try {
+        const response = await fetch('/api/ec2/instances');
+        if (!response.ok) throw new Error('Failed to fetch instances');
+        const instances = await response.json();
+        const container = document.getElementById('instances');
+        container.innerHTML = ''; // Clear existing instances
+        instances.forEach(instance => {
+          const instanceId = instance.InstanceId;
+          const state = instance.State.Name;
+          const instanceName = instance.Tags.find(tag => tag.Key === 'Name')?.Value || 'Unnamed';
+          const publicIp = instance.PublicIpAddress || 'N/A';
+          const privateIp = instance.PrivateIpAddress || 'N/A';
+
+          let actionButtons = '';
+          if (state === 'running') {
+            actionButtons = `<button onclick="handleAction('${instanceId}', 'stop')" class="bg-red-600 text-gray-100 py-2 px-4 rounded hover:bg-red-700 mt-4">Stop</button>`;
+          } else if (state === 'stopped') {
+            actionButtons = `<button onclick="handleAction('${instanceId}', 'start')" class="bg-green-600 text-gray-100 py-2 px-4 rounded hover:bg-green-700 mt-4">Start</button>`;
+          }
+
+          if (state !== 'shutting-down') {
+            actionButtons += `
+              <div class="mt-4">
+                <label for="confirm-text-${instanceId}" class="block text-gray-300 mb-2">Type the <span class="font-semibold">instance id</span> to confirm termination:</label>
+                <input type="text" id="confirm-text-${instanceId}" class="bg-gray-700 text-gray-100 p-2 rounded w-full mb-2" required>
+                <button onclick="handleTerminate('${instanceId}')" class="bg-red-800 text-gray-100 py-2 px-4 rounded hover:bg-red-900">Terminate</button>
+              </div>
+            `;
+          }
+
+          const instanceHtml = `
+            <div class="bg-gray-800 shadow-lg rounded-lg p-6">
+              <h2 class="text-xl font-semibold mb-2">Instance ID: ${instanceId}</h2>
+              <p class="text-gray-300 mb-2">State: <span class="font-semibold ${state === 'running' ? 'text-green-400' : 'text-red-400'}">${state}</span></p>
+              <p class="text-gray-300 mb-2">Name: ${instanceName}</p>
+              <p class="text-gray-300 mb-2">
+                Username: ${instanceName === 'LINUX-INSTANCE' ? 'ubuntu' : instanceName === 'WINDOWS-INSTANCE' ? 'Administrator' : ''}
+              </p>
+              <p class="text-gray-300 mb-2">Public IP: ${publicIp}</p>
+              <p class="text-gray-300 mb-2">Private IP: ${privateIp}</p>
+              ${actionButtons}
+            </div>
+          `;
+          container.innerHTML += instanceHtml;
+        });
+      } catch (error) {
+        console.error('Error fetching instances:', error);
+        new Noty({
+          text: 'Error fetching instances. Please try again later.',
+          type: 'error',
+          layout: 'topRight',
+          timeout: 5000,
+          theme: 'metroui',
+          progressBar: true
+        }).show();
+      }
+    }
+
+    async function handleAction(instanceId, action) {
+      const response = await fetch('/api/ec2/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceId, action })
+      });
+      const result = await response.json();
+      new Noty({
+        text: result.message,
+        type: result.success ? 'success' : 'error',
+        layout: 'topRight',
+        timeout: 5000,
+        theme: 'metroui',
+        progressBar: true
+      }).show();
+    }
+
+    async function handleTerminate(instanceId) {
+      const confirmText = document.getElementById('confirm-text-' + instanceId).value;
+      if (confirmText !== instanceId) {
+        new Noty({
+          text: 'Instance ID does not match. Please type the correct instance ID to confirm termination.',
+          type: 'error',
+          layout: 'topRight',
+          timeout: 5000,
+          theme: 'metroui',
+          progressBar: true
+        }).show();
+        return;
+      }
+
+      const response = await fetch('/api/ec2/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceId, action: 'terminate', confirmText })
+      });
+      const result = await response.json();
+      new Noty({
+        text: result.message,
+        type: result.success ? 'success' : 'error',
+        layout: 'topRight',
+        timeout: 5000,
+        theme: 'metroui',
+        progressBar: true
+      }).show();
+    }
+
+    let countdown = 10;
+    const countdownElement = document.getElementById('countdown');
+    function updateCountdown() {
+      countdownElement.textContent = `Refreshing in: ${countdown} seconds`;
+      if (countdown <= 0) {
+        fetchInstances(); // Fetch instances every 10 seconds
+        countdown = 10; // Reset countdown
+      }
+      countdown--;
+    }
+    setInterval(updateCountdown, 1000);
+
+    // Initial fetch of instances
+    fetchInstances();
+  </script>
+</body>
+</html>

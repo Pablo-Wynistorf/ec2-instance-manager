@@ -2,7 +2,6 @@ import AWS from 'aws-sdk';
 import express from 'express';
 import serverless from 'serverless-http';
 import cookieParser from 'cookie-parser';
-import jwt from 'jsonwebtoken';
 import path from 'path';
 import fs from 'fs';
 import url from 'url';
@@ -11,15 +10,148 @@ const app = express();
 AWS.config.update({ region: 'eu-central-2' });
 const ec2 = new AWS.EC2();
 
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
+
 const VPC_ID = process.env.VPC_ID;
-const ALLOWED_USERNAMES = process.env.ALLOWED_USERNAMES ? process.env.ALLOWED_USERNAMES.split(',') : [];
-const PASSWORD = process.env.PASSWORD;
-const JWT_SECRET = process.env.JWT_SECRET;
 const LINUX_LAUNCH_TEMPLATE_ID = process.env.LINUX_LAUNCH_TEMPLATE_ID;
 const WINDOWS_LAUNCH_TEMPLATE_ID = process.env.WINDOWS_LAUNCH_TEMPLATE_ID;
 
+const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID;
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
+const OAUTH_AUTHORIZATION_URL = process.env.OAUTH_AUTHORIZATION_URL;
+const OAUTH_TOKEN_URL = process.env.OAUTH_TOKEN_URL;
+const OAUTH_USER_INFO_URL = process.env.OAUTH_USER_INFO_URL;
+const OAUTH_REDIRECT_URL = process.env.OAUTH_REDIRECT_URL;
+
 app.use(express.json());
 app.use(cookieParser());
+
+app.use('/', checkAuth, express.static(path.join(__dirname, 'public/dashboard')));
+
+app.use('/login', express.static(path.join(__dirname, 'public/login')));
+
+
+// Check token
+async function checkAuth(req, res, next) {
+  const access_token = req.cookies.access_token;
+  if (!access_token) {
+    return res.redirect('/login');
+  }
+
+  try {
+    const checkUserAccess = await fetch(OAUTH_USER_INFO_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${access_token}`,
+      },
+    });
+
+    if (!checkUserAccess.ok) {
+      return res.redirect('/login');
+    }
+
+    const userData = await checkUserAccess.json();
+    const { username, roles } = userData;
+
+    req.username = username;
+    req.roles = roles;
+
+    if (!roles.includes('standardUser')) {
+      return res.status(403).json({ error: "You are not authorized to access this ressource" });
+    }
+
+    next(); 
+  } catch (error) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+}
+
+
+// Authenticate endpoint
+app.get("/api/auth", async (req, res) => {
+  if (req.cookies.refresh_token !== undefined) {
+    try {
+      const response = await fetch(OAUTH_TOKEN_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          grant_type: "refresh_token",
+          refresh_token: req.cookies.refresh_token,
+          client_secret: OAUTH_CLIENT_SECRET,
+        }),
+      });
+
+      if (!response.ok) {
+        res.clearCookie('access_token');
+        res.clearCookie('refresh_token');
+        return res.redirect('/login');
+      }
+
+      const data = await response.json();
+      const { access_token, refresh_token } = data;
+
+      res.cookie('access_token', access_token, { httpOnly: true, maxAge: 50 * 60 * 1000 });
+      res.cookie('refresh_token', refresh_token, { httpOnly: true, maxAge: 20 * 24 * 60 * 60 * 1000 });
+
+      return res.redirect("/");
+    } catch (error) {
+      return res.redirect('/login');
+    }
+  }
+  return res.redirect(`${OAUTH_AUTHORIZATION_URL}?client_id=${OAUTH_CLIENT_ID}&redirect_uri=${OAUTH_REDIRECT_URL}`);
+});
+
+
+// Callback endpoint
+app.get("/callback", async (req, res) => {
+  const { code } = req.query;
+
+  if (!code) {
+    return res.redirect("/api/auth");
+  }
+
+  try {
+    const response = await fetch(OAUTH_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        grant_type: "authorization_code",
+        code,
+        client_id: OAUTH_CLIENT_ID,
+        client_secret: OAUTH_CLIENT_SECRET,
+        redirect_uri: OAUTH_REDIRECT_URL,
+      }),
+    });
+
+    if (!response.ok) {
+      return res.status(403).redirect("/api/auth");
+    }
+
+    const responseData = await response.json();
+    const { access_token, refresh_token } = responseData;
+
+    res.cookie('access_token', access_token, { httpOnly: true, maxAge: 50 * 60 * 1000 });
+    res.cookie('refresh_token', refresh_token, { httpOnly: true, maxAge: 20 * 24 * 60 * 60 * 1000 });
+
+    res.redirect("/");
+
+  } catch (error) {
+    return res.redirect('/login'); 
+  }
+});
+
+// Logout endpoint
+app.post("/logout", async (req, res) => {
+  res.clearCookie('access_token');
+  res.clearCookie('refresh_token');
+  res.status(200).json({ message: "Logged out successfully" });
+});
+
 
 const getInstancesInVPC = async (VPC_ID) => {
   const params = {
@@ -40,283 +172,25 @@ const getInstancesInVPC = async (VPC_ID) => {
   }
 };
 
-const checkAuth = (req, res, next) => {
-  const token = req.cookies.access_token;
-  if (token) {
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
-      if (err) {
-        return res.status(403).send(loginHtml);
-      }
-      req.username = decoded.username;
-      next();
-    });
-  } else {
-    res.send(loginHtml);
-  }
-};
 
-const loginHtml = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.css" />
-  </head>
-  <body class="bg-gray-900 flex justify-center items-center h-screen">
-    <div class="bg-gray-800 text-gray-100 p-8 rounded-lg shadow-lg max-w-md w-full">
-      <h2 class="text-3xl font-bold mb-6">Login</h2>
-      <form id="loginForm">
-        <input 
-          type="text" 
-          id="username" 
-          placeholder="Enter username" 
-          required 
-          class="w-full p-3 mb-4 bg-gray-700 border border-gray-600 rounded-md text-gray-100"
-        >
-        <input 
-          type="password" 
-          id="password" 
-          placeholder="Enter password" 
-          required 
-          class="w-full p-3 mb-4 bg-gray-700 border border-gray-600 rounded-md text-gray-100"
-        >
-        <button 
-          type="submit" 
-          class="w-full p-3 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          Login
-        </button>
-      </form>
-    </div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.js"></script>
-    <script>
-      document.getElementById('loginForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
-        const response = await fetch('/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const result = await response.json();
-        if (response.status === 200) {
-          window.location.href = '/';
-        } else {
-          new Noty({
-            text: result.message,
-            type: 'error',
-            layout: 'topRight',
-            timeout: 5000,
-            theme: 'metroui',
-            progressBar: true
-          }).show();
-        }
-      });
-    </script>
-  </body>
-  </html>
-`;
-
-app.get('/', checkAuth, async (req, res) => {
+app.get('/api/ec2/instances', checkAuth, async (req, res) => {
   const username = req.username;
   try {
     const instances = await getInstancesInVPC(VPC_ID);
-    
+
     const filteredInstances = instances.filter(instance => {
       const tags = instance.Tags || [];
       const usernameTag = tags.find(tag => tag.Key === 'username');
       return usernameTag && usernameTag.Value === username;
     });
 
-    let html = `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>EC2 Instance Manager</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.css" />
-        <style>
-          #noty-top-right { top: 16px; right: 16px; }
-          #countdown {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-size: 14px;
-            background-color: rgba(0, 0, 0, 0.5);
-            padding: 5px 10px;
-            border-radius: 5px;
-          }
-        </style>
-      </head>
-      <body class="bg-gray-900 text-gray-100 font-sans leading-normal tracking-normal">
-        <div id="countdown">Refreshing in: 10 seconds</div>
-        <div class="container mx-auto p-6">
-          <div class="flex justify-between items-center mb-6">
-            <button id="logoutButton" class="p-2 bg-red-600 text-white rounded-md hover:bg-red-700">
-              Logout
-            </button>
-            <div class="flex space-x-2">
-              <button id="downloadWindowsPasswordButton" class="p-2 bg-white text-gray-800 rounded-md hover:bg-gray-200">
-                Download Windows Password
-              </button>
-              <button id="downloadSshKeyButton" class="p-2 bg-white text-gray-800 rounded-md hover:bg-gray-200">
-                Download SSH Key
-              </button>
-              <button id="launchLinuxButton" class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-                Launch Linux
-              </button>
-              <button id="launchWindowsButton" class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-                Launch Windows
-              </button>
-            </div>
-          </div>
-          <h1 class="text-3xl font-bold mb-6">EC2 Instances</h1>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    `;
-
-    filteredInstances.forEach(instance => {
-      const instanceId = instance.InstanceId;
-      const state = instance.State.Name;
-      const instanceName = instance.Tags.find(tag => tag.Key === 'Name')?.Value || 'Unnamed';
-      const publicIp = instance.PublicIpAddress || 'N/A';
-      const privateIp = instance.PrivateIpAddress || 'N/A';
-
-      let actionButtons = '';
-      if (state === 'running') {
-        actionButtons = `
-          <form action="/${instanceId}/stop" method="get" class="mt-4">
-            <button type="submit" class="bg-red-600 text-gray-100 py-2 px-4 rounded hover:bg-red-700">Stop</button>
-          </form>
-        `;
-      } else if (state === 'stopped') {
-        actionButtons = `
-          <form action="/${instanceId}/start" method="get" class="mt-4">
-            <button type="submit" class="bg-green-600 text-gray-100 py-2 px-4 rounded hover:bg-green-700">Start</button>
-          </form>
-        `;
-      }
-
-      if (state !== 'shutting-down') {
-        actionButtons += `
-          <form action="/${instanceId}/terminate" method="get" class="mt-4">
-            <label for="confirm-text" class="block text-gray-300 mb-2">Type the <span class="font-semibold">instance id</span> to confirm termination:</label>
-            <input type="text" id="confirm-text" name="confirmText" class="bg-gray-700 text-gray-100 p-2 rounded w-full mb-2" required>
-            <button type="submit" class="bg-red-800 text-gray-100 py-2 px-4 rounded hover:bg-red-900">Terminate</button>
-          </form>
-        `;
-      }
-
-      html += `
-        <div class="bg-gray-800 shadow-lg rounded-lg p-6">
-          <h2 class="text-xl font-semibold mb-2">Instance ID: ${instanceId}</h2>
-          <p class="text-gray-300 mb-2">State: <span class="font-semibold ${state === 'running' ? 'text-green-400' : 'text-red-400'}">${state}</span></p>
-          <p class="text-gray-300 mb-2">Name: ${instanceName}</p>
-          <p class="text-gray-300 mb-2">
-            Username: ${instanceName === 'LINUX-INSTANCE' ? 'ubuntu' : instanceName === 'WINDOWS-INSTANCE' ? 'Administrator' : ''}
-          </p>
-          <p class="text-gray-300 mb-2">Public IP: ${publicIp}</p>
-          <p class="text-gray-300 mb-2">Private IP: ${privateIp}</p>
-          ${actionButtons}
-        </div>
-      `;
-    });
-
-    html += `
-          </div>
-        </div>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.js"></script>
-        <script>
-          document.getElementById('logoutButton').addEventListener('click', async () => {
-            await fetch('/logout', { method: 'POST', credentials: 'include' });
-            window.location.href = '/';
-          });
-          
-          document.getElementById('launchLinuxButton').addEventListener('click', async () => {
-            const response = await fetch('/ec2/launch/linux', { method: 'POST' });
-            const result = await response.json();
-            new Noty({
-              text: result.message,
-              type: result.success ? 'success' : 'error',
-              layout: 'topRight',
-              timeout: 5000,
-              theme: 'metroui',
-              progressBar: true
-            }).show();
-            if (result.success) {
-            }
-          });
-          
-          document.getElementById('launchWindowsButton').addEventListener('click', async () => {
-            const response = await fetch('/ec2/launch/windows', { method: 'POST' });
-            const result = await response.json();
-            new Noty({
-              text: result.message,
-              type: result.success ? 'success' : 'error',
-              layout: 'topRight',
-              timeout: 5000,
-              theme: 'metroui',
-              progressBar: true
-            }).show();
-            if (result.success) {
-            }
-          });
-          
-          document.getElementById('downloadSshKeyButton').addEventListener('click', () => {
-            window.location.href = '/download-ssh-key';
-          });
-          
-          document.getElementById('downloadWindowsPasswordButton').addEventListener('click', () => {
-            window.location.href = '/download-windows-password';
-          });
-          
-          // Check for alert parameters in the query string
-          const params = new URLSearchParams(window.location.search);
-          const alertMessage = params.get('alert');
-          const alertType = params.get('type');
-          if (alertMessage) {
-            new Noty({
-              text: decodeURIComponent(alertMessage),
-              type: alertType === 'success' ? 'success' : 'error',
-              layout: 'topRight',
-              timeout: 5000,
-              theme: 'metroui',
-              progressBar: true
-            }).show();
-
-            // Remove the alert query string from the URL
-            params.delete('alert');
-            params.delete('type');
-            window.history.replaceState({}, document.title, window.location.pathname + (params.toString() ? '?' + params.toString() : ''));
-          }
-
-          let countdown = 10;
-          const countdownElement = document.getElementById('countdown');
-          
-          const countdownInterval = setInterval(() => {
-            countdown--;
-            countdownElement.textContent = \`Refreshing in: \${countdown} seconds\`;
-
-            if (countdown <= 0) {
-              clearInterval(countdownInterval);
-              location.reload();
-            }
-          }, 1000);
-        </script>
-      </body>
-      </html>
-    `;
-    res.send(html);
+    res.json(filteredInstances);
   } catch (error) {
-    res.status(500).send('Error retrieving instances');
+    console.error('Error fetching instances:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
 
 
 async function countUserInstances(username) {
@@ -375,54 +249,61 @@ async function launchInstance(req, res, launchTemplateId) {
   }
 }
 
-app.post('/ec2/launch/linux', checkAuth, (req, res) => {
-  launchInstance(req, res, LINUX_LAUNCH_TEMPLATE_ID);
+app.post('/api/ec2/launch', checkAuth, async (req, res) => {
+  const instanceType = req.body.instanceType;
+
+  if (instanceType === 'linux') {
+    await launchInstance(req, res, LINUX_LAUNCH_TEMPLATE_ID);
+  } else if (instanceType === 'windows') {
+    await launchInstance(req, res, WINDOWS_LAUNCH_TEMPLATE_ID);
+  } else {
+    return res.json({ success: false, message: 'Invalid instance type' });
+  }
 });
 
-app.post('/ec2/launch/windows', checkAuth, (req, res) => {
-  launchInstance(req, res, WINDOWS_LAUNCH_TEMPLATE_ID);
-});
 
 
-app.get('/:instanceId/:action', checkAuth, async (req, res) => {
+app.post('/api/ec2/manage', checkAuth, async (req, res) => {
   const username = req.username;
-  const { instanceId, action } = req.params;
+  const { instanceId, action, confirmText } = req.body;
   const validActions = ['start', 'stop', 'terminate'];
 
+  // Validate action
   if (!validActions.includes(action)) {
-    return res.redirect('/?alert=Invalid%20action&type=error');
+    return res.status(400).json({ message: 'Invalid action', type: 'error' });
   }
 
   try {
+    // Describe the instance
     const instanceData = await ec2.describeInstances({ InstanceIds: [instanceId] }).promise();
     const tags = instanceData.Reservations[0].Instances[0].Tags;
     const usernameTag = tags.find(tag => tag.Key === 'username');
 
+    // Check if the action is authorized
     if (!usernameTag || usernameTag.Value !== username) {
-      return res.redirect('/?alert=Unauthorized%20action&type=error');
+      return res.status(401).json({ message: 'Unauthorized action', type: 'error' });
     }
 
+    // Perform the requested action
     if (action === 'start') {
       await ec2.startInstances({ InstanceIds: [instanceId] }).promise();
-      res.redirect('/?alert=Instance%20started%20successfully&type=success');
+      return res.status(200).json({ message: 'Instance started successfully', type: 'success' });
     } else if (action === 'stop') {
       await ec2.stopInstances({ InstanceIds: [instanceId] }).promise();
-      res.redirect('/?alert=Instance%20stopped%20successfully&type=success');
+      return res.status(200).json({ message: 'Instance stopped successfully', type: 'success' });
     } else if (action === 'terminate') {
-      const { confirmText } = req.query;
       if (confirmText !== instanceId) {
-        return res.redirect('/?alert=Invalid%20confirmation%20text&type=error');
+        return res.status(400).json({ message: 'Invalid confirmation text', type: 'error' });
       }
       await ec2.terminateInstances({ InstanceIds: [instanceId] }).promise();
-      res.redirect('/?alert=Instance%20terminated%20successfully&type=success');
+      return res.status(200).json({ message: 'Instance terminated successfully', type: 'success' });
     }
   } catch (error) {
     console.error('Error performing action:', error);
-    res.redirect('/?alert=Error%20performing%20action&type=error');
+    return res.status(500).json({ message: 'Error performing action', type: 'error' });
   }
 });
 
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 app.get('/download-ssh-key', checkAuth, (req, res) => {
   const keyFilePath = path.join(__dirname, 'instance_access', 'ssh.pem');
@@ -456,25 +337,5 @@ app.get('/download-windows-password', checkAuth, (req, res) => {
   });
 });
 
-app.post('/login', (req, res) => {
-  const { username, password } = req.body;
-
-  if (!ALLOWED_USERNAMES.includes(username)) {
-    return res.status(403).json({ message: 'User doesnt exist' });
-  }
-
-  if (password === PASSWORD) {
-    const token = jwt.sign({ username: username }, JWT_SECRET, { expiresIn: '1h' });
-    res.cookie('access_token', token, { httpOnly: true });
-    res.status(200).json({ message: 'Login successful' });
-  } else {
-    res.status(401).json({ message: 'Invalid password' });
-  }
-});
-
-app.post('/logout', (req, res) => {
-  res.cookie('access_token', '', { httpOnly: true, expires: new Date(0) });
-  res.status(200).json({ message: 'Logged out successfully' });
-});
 
 export const handler = serverless(app);
