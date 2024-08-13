@@ -384,13 +384,27 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
 
 // Get Windows password
 app.post('/api/ec2/get-windows-password', checkAuth, async (req, res) => {
-  const instanceId = req.body.instanceId;
+  const username = req.username;
+  const roles = req.roles;
+  const { instanceId } = req.body;
 
   if (!instanceId) {
     return res.status(400).json({ message: 'Instance ID not provided' });
   }
 
   try {
+    let instanceData;
+    if (!roles.includes('adminUser')) {
+      const describeCommand = new DescribeInstancesCommand({ InstanceIds: [instanceId] });
+      instanceData = await ec2Client.send(describeCommand);
+      const tags = instanceData.Reservations[0].Instances[0].Tags;
+      const usernameTag = tags.find(tag => tag.Key === 'username');
+
+      if (!usernameTag || usernameTag.Value !== username) {
+        return res.status(401).json({ message: 'Unauthorized action', type: 'error' });
+      }
+    }
+
     const password = await getWindowsPassword(instanceId);
 
     if (!password) {
@@ -403,6 +417,7 @@ app.post('/api/ec2/get-windows-password', checkAuth, async (req, res) => {
     res.status(500).json({ message: 'Password is not yet available, it can take up to 5 minutes' });
   }
 });
+
 
 // Download SSH key
 app.get('/download-ssh-key', checkAuth, (req, res) => {
