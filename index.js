@@ -1,16 +1,17 @@
-import AWS from 'aws-sdk';
 import express from 'express';
+import { EC2Client, RunInstancesCommand, StartInstancesCommand, StopInstancesCommand, TerminateInstancesCommand, GetPasswordDataCommand, DescribeInstancesCommand  } from '@aws-sdk/client-ec2';
 import serverless from 'serverless-http';
 import cookieParser from 'cookie-parser';
 import path from 'path';
-import fs from 'fs';
+import fs from 'fs/promises';
 import url from 'url';
+import crypto from 'crypto';
+
+
+const ec2Client = new EC2Client({ region: 'eu-central-2' });
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 const app = express();
-AWS.config.update({ region: 'eu-central-2' });
-const ec2 = new AWS.EC2();
-
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 const VPC_ID = process.env.VPC_ID;
 const LINUX_LAUNCH_TEMPLATE_ID = process.env.LINUX_LAUNCH_TEMPLATE_ID;
@@ -165,7 +166,8 @@ const getInstancesInVPC = async (VPC_ID) => {
   };
 
   try {
-    const data = await ec2.describeInstances(params).promise();
+    const command = new DescribeInstancesCommand(params);
+    const data = await ec2Client.send(command);
     return data.Reservations.flatMap(reservation => reservation.Instances);
   } catch (error) {
     console.error('Error retrieving instances:', error);
@@ -174,27 +176,33 @@ const getInstancesInVPC = async (VPC_ID) => {
 };
 
 // Count user instances
-async function countUserInstances(username) {
+const countUserInstances = async (username) => {
   const params = {
     Filters: [
       {
         Name: 'tag:username',
-        Values: [username]
+        Values: [username],
       },
       {
         Name: 'instance-state-name',
-        Values: ['pending', 'running']
-      }
-    ]
+        Values: ['pending', 'running'],
+      },
+    ],
   };
 
-  const data = await ec2.describeInstances(params).promise();
-  const instances = data.Reservations.flatMap(reservation => reservation.Instances);
-  return instances.length;
-}
+  try {
+    const command = new DescribeInstancesCommand(params);
+    const data = await ec2Client.send(command);
+    const instances = data.Reservations.flatMap(reservation => reservation.Instances);
+    return instances.length;
+  } catch (error) {
+    console.error('Error counting user instances:', error);
+    throw new Error('Error counting user instances');
+  }
+};
 
 // Launch EC2 instance
-async function launchInstance(req, res, launchTemplateId) {
+const launchInstance = async (req, res, launchTemplateId) => {
   const username = req.username;
 
   try {
@@ -218,16 +226,55 @@ async function launchInstance(req, res, launchTemplateId) {
               Key: 'username',
               Value: username,
             },
-          ]
-        }
-      ]
+          ],
+        },
+      ],
     };
 
-    await ec2.runInstances(params).promise();
+    const command = new RunInstancesCommand(params);
+    await ec2Client.send(command);
+
     res.json({ success: true, message: 'Instance launched successfully' });
   } catch (error) {
     console.error('Error launching instance:', error);
     res.json({ success: false, message: 'Error launching instance' });
+  }
+};
+
+async function getWindowsPassword(instanceId) {
+  try {
+      const privateKeyPath = path.join(__dirname, './instance_access/ec2-instance-manager-windows-password-key.pem');
+      const privateKey = await fs.readFile(privateKeyPath, 'utf8');
+
+      const command = new GetPasswordDataCommand({
+          InstanceId: instanceId
+      });
+
+      const response = await ec2Client.send(command);
+
+      if (response.PasswordData === undefined || response.PasswordData === '') {
+          throw new Error('Password data is empty or undefined.');
+      }
+
+      const encryptedPassword = Buffer.from(response.PasswordData, 'base64');
+      let decryptedPassword = crypto.privateDecrypt(
+          {
+              key: privateKey,
+              padding: crypto.constants.RSA_NO_PADDING,
+          },
+          encryptedPassword
+      )
+
+      decryptedPassword = decryptedPassword.toString('utf8');
+
+      decryptedPassword = decryptedPassword.substring(decryptedPassword.length - 32);
+      
+
+      return decryptedPassword;
+
+  } catch (error) {
+      console.error('Error retrieving or decrypting password:', error);
+      throw error;
   }
 }
 
@@ -300,7 +347,8 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
     // Describe the instance if not an admin user
     let instanceData;
     if (!roles.includes('adminUser')) {
-      instanceData = await ec2.describeInstances({ InstanceIds: [instanceId] }).promise();
+      const describeCommand = new DescribeInstancesCommand({ InstanceIds: [instanceId] });
+      instanceData = await ec2Client.send(describeCommand);
       const tags = instanceData.Reservations[0].Instances[0].Tags;
       const usernameTag = tags.find(tag => tag.Key === 'username');
 
@@ -311,22 +359,48 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
     }
 
     // Perform the requested action
+    let actionCommand;
     if (action === 'start') {
-      await ec2.startInstances({ InstanceIds: [instanceId] }).promise();
-      return res.status(200).json({ message: 'Instance started successfully', type: 'success' });
+      actionCommand = new StartInstancesCommand({ InstanceIds: [instanceId] });
     } else if (action === 'stop') {
-      await ec2.stopInstances({ InstanceIds: [instanceId] }).promise();
-      return res.status(200).json({ message: 'Instance stopped successfully', type: 'success' });
+      actionCommand = new StopInstancesCommand({ InstanceIds: [instanceId] });
     } else if (action === 'terminate') {
       if (confirmText !== instanceId) {
         return res.status(400).json({ message: 'Invalid confirmation text', type: 'error' });
       }
-      await ec2.terminateInstances({ InstanceIds: [instanceId] }).promise();
-      return res.status(200).json({ message: 'Instance terminated successfully', type: 'success' });
+      actionCommand = new TerminateInstancesCommand({ InstanceIds: [instanceId] });
     }
+
+    if (actionCommand) {
+      await ec2Client.send(actionCommand);
+      return res.status(200).json({ message: `Instance ${action}d successfully`, type: 'success' });
+    }
+
   } catch (error) {
     console.error('Error performing action:', error);
     return res.status(500).json({ message: 'Error performing action', type: 'error' });
+  }
+});
+
+// Get Windows password
+app.post('/api/ec2/get-windows-password', checkAuth, async (req, res) => {
+  const instanceId = req.body.instanceId;
+
+  if (!instanceId) {
+    return res.status(400).json({ message: 'Instance ID not provided' });
+  }
+
+  try {
+    const password = await getWindowsPassword(instanceId);
+
+    if (!password) {
+      return res.status(404).json({ message: 'Password not available' });
+    }
+
+    res.json({ password });
+  } catch (error) {
+    console.error('Password is not yet available, it can take up to 5 minutes', error);
+    res.status(500).json({ message: 'Password is not yet available, it can take up to 5 minutes' });
   }
 });
 
@@ -343,23 +417,6 @@ app.get('/download-ssh-key', checkAuth, (req, res) => {
     if (err) {
       console.error('Error downloading SSH key:', err);
       res.status(500).send('Error downloading SSH key');
-    }
-  });
-});
-
-// Download Windows password
-app.get('/download-windows-password', checkAuth, (req, res) => {
-  const keyFilePath = path.join(__dirname, 'instance_access', 'windows-password.txt');
-
-  // Check if file exists
-  if (!fs.existsSync(keyFilePath)) {
-    return res.status(404).send('Windows Password file not found');
-  }
-
-  res.download(keyFilePath, 'windows-password.txt', (err) => {
-    if (err) {
-      console.error('Error downloading windows password:', err);
-      res.status(500).send('Error downloading windows password');
     }
   });
 });
