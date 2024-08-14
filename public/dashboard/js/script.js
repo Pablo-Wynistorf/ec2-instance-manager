@@ -78,7 +78,7 @@ async function handleLaunch(instanceType) {
   new Noty({
     text: result.message,
     type: result.success ? "success" : "error",
-    layout: "topRight",
+    layout: "bottomRight",
     timeout: 5000,
     theme: "metroui",
     progressBar: true,
@@ -152,7 +152,7 @@ async function fetchInstances() {
     new Noty({
       text: "Error fetching instances. Please try again later.",
       type: "error",
-      layout: "topRight",
+      layout: "bottomRight",
       timeout: 5000,
       theme: "metroui",
       progressBar: true,
@@ -171,7 +171,7 @@ async function handleAction(instanceId, action) {
   new Noty({
     text: result.message,
     type: result.success ? "success" : "error",
-    layout: "topRight",
+    layout: "bottomRight",
     timeout: 5000,
     theme: "metroui",
     progressBar: true,
@@ -195,7 +195,7 @@ async function handleTerminate() {
       new Noty({
         text: "Instance ID does not match. Please type the correct instance ID to confirm termination.",
         type: "error",
-        layout: "topRight",
+        layout: "bottomRight",
         timeout: 5000,
         theme: "metroui",
         progressBar: true,
@@ -218,7 +218,7 @@ async function handleTerminate() {
       new Noty({
         text: result.message,
         type: result.success ? "success" : "error",
-        layout: "topRight",
+        layout: "bottomRight",
         timeout: 5000,
         theme: "metroui",
         progressBar: true,
@@ -229,7 +229,7 @@ async function handleTerminate() {
       new Noty({
         text: "Error terminating instance. Please try again later.",
         type: "error",
-        layout: "topRight",
+        layout: "bottomRight",
         timeout: 5000,
         theme: "metroui",
         progressBar: true,
@@ -263,7 +263,7 @@ async function showPasswordModal(instanceId) {
         new Noty({
           text: "Password not yet available, wait a few minutes and try again.",
           type: "error",
-          layout: "topRight",
+          layout: "bottomRight",
           timeout: 5000,
           theme: "metroui",
           progressBar: true,
@@ -275,7 +275,7 @@ async function showPasswordModal(instanceId) {
       new Noty({
         text: "Password not yet available, wait a few minutes and try again.",
         type: "error",
-        layout: "topRight",
+        layout: "bottomRight",
         timeout: 5000,
         theme: "metroui",
         progressBar: true,
@@ -290,7 +290,7 @@ document.getElementById("copyPasswordButton").addEventListener("click", () => {
   new Noty({
     text: "Password copied to clipboard!",
     type: "success",
-    layout: "topRight",
+    layout: "bottomRight",
     timeout: 3000,
     theme: "metroui",
     progressBar: true,
