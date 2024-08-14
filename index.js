@@ -1,5 +1,7 @@
 import express from 'express';
-import { EC2Client, RunInstancesCommand, StartInstancesCommand, StopInstancesCommand, TerminateInstancesCommand, GetPasswordDataCommand, DescribeInstancesCommand  } from '@aws-sdk/client-ec2';
+import { EC2Client, RunInstancesCommand, StartInstancesCommand, StopInstancesCommand, TerminateInstancesCommand, GetPasswordDataCommand, DescribeInstancesCommand, DescribeKeyPairsCommand, CreateKeyPairCommand } from '@aws-sdk/client-ec2';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import serverless from 'serverless-http';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -9,10 +11,12 @@ import crypto from 'crypto';
 
 
 const ec2Client = new EC2Client({ region: 'eu-central-2' });
+const s3Client = new S3Client({ region: 'eu-central-1' });
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 const app = express();
 
+const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME;
 const VPC_ID = process.env.VPC_ID;
 const LINUX_LAUNCH_TEMPLATE_ID = process.env.LINUX_LAUNCH_TEMPLATE_ID;
 const WINDOWS_LAUNCH_TEMPLATE_ID = process.env.WINDOWS_LAUNCH_TEMPLATE_ID;
@@ -116,36 +120,83 @@ app.get('/callback', async (req, res) => {
   }
 
   try {
-    const response = await fetch(OAUTH_TOKEN_URL, {
+    // Fetch OAuth tokens
+    const tokenResponse = await fetch(process.env.OAUTH_TOKEN_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         grant_type: "authorization_code",
         code,
-        client_id: OAUTH_CLIENT_ID,
-        client_secret: OAUTH_CLIENT_SECRET,
-        redirect_uri: OAUTH_REDIRECT_URL,
+        client_id: process.env.OAUTH_CLIENT_ID,
+        client_secret: process.env.OAUTH_CLIENT_SECRET,
+        redirect_uri: process.env.OAUTH_REDIRECT_URL,
       }),
     });
 
-    if (!response.ok) {
+    if (!tokenResponse.ok) {
       return res.status(403).redirect("/api/auth");
     }
 
-    const responseData = await response.json();
-    const { access_token, refresh_token } = responseData;
+    const { access_token, refresh_token } = await tokenResponse.json();
+
+    // Fetch user data using the obtained access_token
+    const userDataResponse = await fetch(process.env.OAUTH_USER_INFO_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${access_token}`,
+      },
+    });
+
+    if (!userDataResponse.ok) {
+      return res.status(403).redirect("/api/auth");
+    }
+
+    const { username } = await userDataResponse.json();
+    const sshKeyName = `${username}-ssh-key`;
 
     res.cookie('access_token', access_token, { httpOnly: true, maxAge: 50 * 60 * 1000 });
     res.cookie('refresh_token', refresh_token, { httpOnly: true, maxAge: 20 * 24 * 60 * 60 * 1000 });
 
-    res.redirect('/dashboard');
+    try {
+      const { KeyPairs } = await ec2Client.send(new DescribeKeyPairsCommand({ KeyNames: [sshKeyName] }));
+      
+      if (KeyPairs.length > 0) {
+        return res.redirect('/dashboard');
+      }
+    } catch (err) {
+      if (err.name !== 'InvalidKeyPair.NotFound') {
+        console.error('Error checking SSH key:', err);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+    }
 
+    try {
+      const { KeyMaterial } = await ec2Client.send(new CreateKeyPairCommand({ KeyName: sshKeyName }));
+      const keyFilePath = path.join('/tmp', `${sshKeyName}.pem`); 
+
+      await Promise.all([
+        fs.writeFile(keyFilePath, KeyMaterial),
+        s3Client.send(new PutObjectCommand({
+          Bucket: S3_BUCKET_NAME,
+          Key: `${sshKeyName}.pem`,
+          Body: Buffer.from(KeyMaterial),
+          ContentType: 'application/x-pem-file',
+        })),
+      ]);
+
+      await fs.unlink(keyFilePath);
+      return res.redirect('/dashboard');
+    } catch (err) {
+      console.error('Error creating or uploading SSH key:', err);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
   } catch (error) {
-    return res.redirect('/login'); 
+    console.error('Error in callback processing:', error);
+    return res.redirect('/login');
   }
 });
+
 
 // Logout endpoint
 app.post("/logout", async (req, res) => {
@@ -204,6 +255,7 @@ const countUserInstances = async (username) => {
 // Launch EC2 instance
 const launchInstance = async (req, res, launchTemplateId) => {
   const username = req.username;
+  const sshKeyName = username + '-ssh-key';
 
   try {
     const count = await countUserInstances(username);
@@ -218,6 +270,7 @@ const launchInstance = async (req, res, launchTemplateId) => {
       },
       MinCount: 1,
       MaxCount: 1,
+      KeyName: sshKeyName,  // Add this line to specify the SSH key pair
       TagSpecifications: [
         {
           ResourceType: 'instance',
@@ -240,6 +293,7 @@ const launchInstance = async (req, res, launchTemplateId) => {
     res.json({ success: false, message: 'Error launching instance' });
   }
 };
+
 
 async function getWindowsPassword(instanceId) {
   try {
@@ -420,20 +474,26 @@ app.post('/api/ec2/get-windows-password', checkAuth, async (req, res) => {
 
 
 // Download SSH key
-app.get('/download-ssh-key', checkAuth, (req, res) => {
-  const keyFilePath = path.join(__dirname, 'instance_access', 'ssh.pem');
+app.get('/api/ec2/get-linux-ssh-key', checkAuth, async (req, res) => {
+  const username = req.username;
+  const sshKeyName = `${username}-ssh-key.pem`;
 
-  // Check if file exists
-  if (!fs.existsSync(keyFilePath)) {
-    return res.status(404).send('SSH key file not found');
+  try {
+    // Create a GetObjectCommand for the object in S3
+    const command = new GetObjectCommand({
+      Bucket: S3_BUCKET_NAME,
+      Key: sshKeyName,
+    });
+
+    // Generate a pre-signed URL for the GetObjectCommand
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL expires in 1 hour
+
+    res.json({ downloadUrl: url });
+  } catch (error) {
+    console.error('Error generating S3 pre-signed URL:', error);
+    res.status(500).json({ error: 'Error generating download link' });
   }
-
-  res.download(keyFilePath, 'ssh.pem', (err) => {
-    if (err) {
-      console.error('Error downloading SSH key:', err);
-      res.status(500).send('Error downloading SSH key');
-    }
-  });
 });
+
 
 export const handler = serverless(app);
