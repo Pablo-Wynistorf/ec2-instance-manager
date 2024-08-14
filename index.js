@@ -7,7 +7,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import fs from 'fs/promises';
 import url from 'url';
-import NodeRSA from 'node-rsa';
+import forge from 'node-forge';
 
 
 const ec2Client = new EC2Client({ region: 'eu-central-2' });
@@ -253,7 +253,7 @@ const countUserInstances = async (username) => {
 };
 
 // Launch EC2 instance
-const launchInstance = async (req, res, launchTemplateId) => {
+const launchLinuxInstance = async (req, res, launchTemplateId) => {
   const username = req.username;
   const sshKeyName = username + '-ssh-key';
 
@@ -270,7 +270,46 @@ const launchInstance = async (req, res, launchTemplateId) => {
       },
       MinCount: 1,
       MaxCount: 1,
-      KeyName: sshKeyName,  // Add this line to specify the SSH key pair
+      KeyName: sshKeyName,
+      TagSpecifications: [
+        {
+          ResourceType: 'instance',
+          Tags: [
+            {
+              Key: 'username',
+              Value: username,
+            },
+          ],
+        },
+      ],
+    };
+
+    const command = new RunInstancesCommand(params);
+    await ec2Client.send(command);
+
+    res.json({ success: true, message: 'Instance launched successfully' });
+  } catch (error) {
+    console.error('Error launching instance:', error);
+    res.json({ success: false, message: 'Error launching instance' });
+  }
+};
+
+const launchWindowsInstance = async (req, res, launchTemplateId) => {
+  const username = req.username;
+
+  try {
+    const count = await countUserInstances(username);
+
+    if (count >= 4) {
+      return res.json({ success: false, message: 'You are permitted to launch only four instances at a time' });
+    }
+
+    const params = {
+      LaunchTemplate: {
+        LaunchTemplateId: launchTemplateId,
+      },
+      MinCount: 1,
+      MaxCount: 1,
       TagSpecifications: [
         {
           ResourceType: 'instance',
@@ -295,34 +334,29 @@ const launchInstance = async (req, res, launchTemplateId) => {
 };
 
 
+
 async function getWindowsPassword(instanceId) {
   try {
-      // Read the private key from file
-      const privateKeyPath = path.join(__dirname, './instance_access/ec2-instance-manager-windows-password-key.pem');
-      const privateKeyString = await fs.readFile(privateKeyPath, 'utf8');
-      const privateKey = new NodeRSA(privateKeyString, 'pkcs1');
+    const privateKeyPath = path.resolve(__dirname, './instance_access/ec2-instance-manager-windows-password-key.pem');
+    const privateKeyPem = await fs.readFile(privateKeyPath, 'utf8');
 
-      // Retrieve the encrypted password data
-      const command = new GetPasswordDataCommand({ InstanceId: instanceId });
-      const response = await ec2Client.send(command);
+    const command = new GetPasswordDataCommand({ InstanceId: instanceId });
+    const response = await ec2Client.send(command);
 
-      if (!response.PasswordData) {
-          throw new Error('Password data is empty or undefined.');
-      }
+    if (!response.PasswordData) {
+      throw new Error('No password data returned from AWS.');
+    }
 
-      // Decrypt the password using node-rsa
-      const encryptedPassword = Buffer.from(response.PasswordData, 'base64');
-      const decryptedPassword = privateKey.decrypt(encryptedPassword, 'utf8');
+    const encryptedPassword = Buffer.from(response.PasswordData, 'base64');
+    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
 
-      console.log('Decrypted password:', decryptedPassword);
+    const decryptedPassword = privateKey.decrypt(encryptedPassword.toString('binary'), 'RSAES-PKCS1-V1_5');
 
-      // Extract the actual password from decrypted data (adjust based on actual format)
-      const finalPassword = decryptedPassword.substring(decryptedPassword.length - 32);
+    return decryptedPassword;
 
-      return finalPassword;
   } catch (error) {
-      console.error('Error retrieving or decrypting password:', error);
-      throw error;
+    console.error('Failed to retrieve or decrypt the password:', error.message);
+    throw new Error('Unable to retrieve or decrypt the Windows password.');
   }
 }
 
@@ -371,9 +405,9 @@ app.post('/api/ec2/launch', checkAuth, async (req, res) => {
   const instanceType = req.body.instanceType;
 
   if (instanceType === 'linux') {
-    await launchInstance(req, res, LINUX_LAUNCH_TEMPLATE_ID);
+    await launchLinuxInstance(req, res, LINUX_LAUNCH_TEMPLATE_ID);
   } else if (instanceType === 'windows') {
-    await launchInstance(req, res, WINDOWS_LAUNCH_TEMPLATE_ID);
+    await launchWindowsInstance(req, res, WINDOWS_LAUNCH_TEMPLATE_ID);
   } else {
     return res.json({ success: false, message: 'Invalid instance type' });
   }
