@@ -63,10 +63,6 @@ function hideModal(modalId) {
   document.body.classList.remove("overflow-hidden"); // Allow scrolling again
 }
 
-// Open Terminate Modal example
-document.getElementById("someElement").addEventListener("click", function () {
-  showModal("terminateModal");
-});
 
 // Close Terminate Modal
 document
