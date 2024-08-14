@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EC2 Instance Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/png" href="https://cdn.onedns.ch/attachment/1273342450408226879">
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.css"
@@ -20,23 +21,17 @@
       }
     </style>
   </head>
-  <body class="bg-gray-900 text-gray-100 font-sans leading-normal tracking-normal">
+  <body
+    class="bg-gray-900 text-gray-100 font-sans leading-normal tracking-normal"
+  >
     <div class="container mx-auto p-6">
       <div class="flex justify-between items-center mb-6">
         <button
           id="logoutButton"
-          class="p-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+          class="p-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center justify-center"
         >
-          Logout
-        </button>
-        <div class="flex justify-center items-center w-full space-x-2">
-          <button
-          id="launchLinuxButton"
-          class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center"
-        >
-          <span>Launch Linux</span>
+          <span>Logout</span>
           <svg
-            id="launchLinuxLoadingIcon"
             class="ml-2 hidden w-5 h-5 text-white animate-spin"
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
@@ -58,38 +53,103 @@
             ></path>
           </svg>
         </button>
-        
-          <button
-            id="launchWindowsButton"
-            class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            Launch Windows
-          </button>
-        </div>
       </div>
+
+      <div class="flex justify-center items-center w-full space-x-2">
+        <button
+        id="launchLinuxButton"
+        class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center"
+    >
+        <span>Launch Linux</span>
+        <svg
+            class="ml-2 w-5 h-5 text-white animate-spin hidden"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+        >
+            <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+            ></circle>
+            <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            ></path>
+        </svg>
+    </button>
+    
+    <!-- Launch Windows Button -->
+    <button
+        id="launchWindowsButton"
+        class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center"
+    >
+        <span>Launch Windows</span>
+        <svg
+            class="ml-2 w-5 h-5 text-white animate-spin hidden"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+        >
+            <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+            ></circle>
+            <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            ></path>
+        </svg>
+    </button>
+      </div>
+
       <div class="flex justify-between items-center mb-6">
         <h1 class="text-3xl font-bold">EC2 Instances</h1>
         <button
           id="downloadSshKeyButton"
-          class="p-2 bg-white text-gray-800 rounded-md hover:bg-gray-200"
+          class="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center"
         >
-          Download SSH Key
+          <span>Download SSH Key</span>
+          <svg
+            class="ml-2 hidden w-5 h-5 text-white animate-spin"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            ></circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            ></path>
+          </svg>
         </button>
       </div>
-      <div
-        id="instances"
-        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-      ></div>
-    </div>
 
-    <!-- Loading Overlay -->
-    <div
-      id="loadingOverlay"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden"
-    >
-      <div
-        class="w-16 h-16 border-4 border-t-transparent border-white rounded-full animate-spin"
-      ></div>
+      <div id="instances" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div id="noInstancesMessage" class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-900 bg-opacity-75 p-4 rounded-lg text-white text-xl hidden">
+          <p>No instances have been created.</p>
+        </div>                 
+      </div>
     </div>
 
     <!-- Terminate Modal -->
@@ -116,9 +176,30 @@
           </button>
           <button
             id="confirmTerminateButton"
-            class="bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+            class="bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 flex items-center justify-center"
           >
-            Terminate
+            <span>Terminate</span>
+            <svg
+              class="ml-2 hidden w-5 h-5 text-white animate-spin"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              ></path>
+            </svg>
           </button>
         </div>
       </div>

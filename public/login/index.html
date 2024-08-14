@@ -6,6 +6,11 @@
   <title>Login</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noty/3.1.4/noty.min.css" />
+  <style>
+    .hidden {
+      display: none;
+    }
+  </style>
 </head>
 <body class="bg-gray-900 flex justify-center items-center h-screen">
   <div class="bg-gray-800 text-gray-100 p-8 rounded-lg shadow-lg max-w-md w-full">
@@ -13,16 +18,71 @@
     <form id="loginForm">
       <button 
         type="submit" 
-        class="w-full p-3 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+        id="loginButton"
+        class="w-full p-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center"
       >
-        Login with ONEIDP
+        <span id="buttonText">Login with ONEIDP</span>
+        <svg
+          id="loadingIcon"
+          class="ml-2 hidden w-5 h-5 text-white animate-spin"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="4"
+          ></circle>
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+          ></path>
+        </svg>
       </button>
     </form>
   </div>
   <script>
+    function setButtonLoading(buttonId, isLoading) {
+      const button = document.getElementById(buttonId);
+      const loadingIcon = document.getElementById('loadingIcon');
+      const buttonText = document.getElementById('buttonText');
+    
+      if (isLoading) {
+        buttonText.setAttribute("data-original-text", buttonText.textContent);
+        buttonText.textContent = "Logging in...";
+        loadingIcon.classList.remove("hidden");
+        button.disabled = true;
+      } else {
+        buttonText.textContent = buttonText.getAttribute("data-original-text");
+        loadingIcon.classList.add("hidden");
+        button.disabled = false;
+      }
+    }
+    
     document.getElementById('loginForm').addEventListener('submit', async (event) => {
       event.preventDefault();
-      window.location.href = '/api/auth';
+      setButtonLoading('loginButton', true);
+      try {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        window.location.href = '/api/auth';
+      } catch (error) {
+        console.error('Login failed:', error);
+        new Noty({
+          text: "Login failed. Please try again.",
+          type: "error",
+          layout: "topRight",
+          timeout: 5000,
+          theme: "metroui",
+          progressBar: true,
+        }).show();
+        setButtonLoading('loginButton', false);
+      }
     });
   </script>
 </body>

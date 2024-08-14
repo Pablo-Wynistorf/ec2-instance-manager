@@ -64,7 +64,6 @@ async function checkAuth(req, res, next) {
     req.username = username;
     req.roles = roles;
 
-    // You can add any role-based logic here
     if (!roles.includes('standardUser') && !roles.includes('adminUser')) {
       return res.status(403).json({ error: "You are not authorized to access this resource" });
     }
@@ -120,7 +119,6 @@ app.get('/callback', async (req, res) => {
   }
 
   try {
-    // Fetch OAuth tokens
     const tokenResponse = await fetch(process.env.OAUTH_TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -328,11 +326,9 @@ const launchWindowsInstance = async (req, res, launchTemplateId) => {
 
     res.json({ success: true, message: 'Instance launched successfully' });
   } catch (error) {
-    console.error('Error launching instance:', error);
     res.json({ success: false, message: 'Error launching instance' });
   }
 };
-
 
 
 async function getWindowsPassword(instanceId) {
@@ -355,7 +351,6 @@ async function getWindowsPassword(instanceId) {
     return decryptedPassword;
 
   } catch (error) {
-    console.error('Failed to retrieve or decrypt the password:', error.message);
     throw new Error('Unable to retrieve or decrypt the Windows password.');
   }
 }
@@ -367,7 +362,7 @@ app.get('/api/ec2/instances', checkAuth, async (req, res) => {
 
   try {
     if (!username) {
-      return res.status(400).json({ error: 'Username not provided' });
+      return res.status(400).json({ success: false, message: 'Username not provided' });
     }
 
     const instances = await getInstancesInVPC(VPC_ID);
@@ -394,7 +389,7 @@ app.get('/api/ec2/instances', checkAuth, async (req, res) => {
     res.json(formattedInstances);
   } catch (error) {
     console.error('Error fetching instances:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
   }
 });
 
@@ -420,13 +415,11 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
   const { instanceId, action, confirmText } = req.body;
   const validActions = ['start', 'stop', 'terminate'];
 
-  // Validate action
   if (!validActions.includes(action)) {
-    return res.status(400).json({ message: 'Invalid action', type: 'error' });
+    return res.status(400).json({ success: false, message: 'Invalid action'});
   }
 
   try {
-    // Describe the instance if not an admin user
     let instanceData;
     if (!roles.includes('adminUser')) {
       const describeCommand = new DescribeInstancesCommand({ InstanceIds: [instanceId] });
@@ -434,33 +427,31 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
       const tags = instanceData.Reservations[0].Instances[0].Tags;
       const usernameTag = tags.find(tag => tag.Key === 'username');
 
-      // Check if the action is authorized
       if (!usernameTag || usernameTag.Value !== username) {
-        return res.status(401).json({ message: 'Unauthorized action', type: 'error' });
+        return res.status(401).json({ success: false, message: 'Unauthorized action' });
       }
     }
 
-    // Perform the requested action
     let actionCommand;
     if (action === 'start') {
       actionCommand = new StartInstancesCommand({ InstanceIds: [instanceId] });
       await ec2Client.send(actionCommand);
-      return res.status(200).json({ message: `Instance started successfully`, type: 'success' });
+      return res.status(200).json({ success: true, message: `Instance started successfully`});
     } else if (action === 'stop') {
       actionCommand = new StopInstancesCommand({ InstanceIds: [instanceId] });
       await ec2Client.send(actionCommand);
-      return res.status(200).json({ message: `Instance stopped successfully`, type: 'success' });
+      return res.status(200).json({ success: true, message: `Instance stopped successfully` });
     } else if (action === 'terminate') {
       if (confirmText !== instanceId) {
-        return res.status(400).json({ message: 'Invalid confirmation text', type: 'error' });
+        return res.status(400).json({ success: false, message: 'Invalid confirmation text' });
       }
       actionCommand = new TerminateInstancesCommand({ InstanceIds: [instanceId] });
       await ec2Client.send(actionCommand);
-      return res.status(200).json({ message: `Instance terminated successfully`, type: 'success' });
+      return res.status(200).json({ success: true, message: `Instance terminated successfully` });
     }
   } catch (error) {
     console.error('Error performing action:', error);
-    return res.status(500).json({ message: 'Error performing action', type: 'error' });
+    return res.status(500).json({ success: false, message: 'Error performing action' });
   }
 });
 
