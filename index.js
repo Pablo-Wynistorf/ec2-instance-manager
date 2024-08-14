@@ -444,20 +444,20 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
     let actionCommand;
     if (action === 'start') {
       actionCommand = new StartInstancesCommand({ InstanceIds: [instanceId] });
+      await ec2Client.send(actionCommand);
+      return res.status(200).json({ message: `Instance started successfully`, type: 'success' });
     } else if (action === 'stop') {
       actionCommand = new StopInstancesCommand({ InstanceIds: [instanceId] });
+      await ec2Client.send(actionCommand);
+      return res.status(200).json({ message: `Instance stopped successfully`, type: 'success' });
     } else if (action === 'terminate') {
       if (confirmText !== instanceId) {
         return res.status(400).json({ message: 'Invalid confirmation text', type: 'error' });
       }
       actionCommand = new TerminateInstancesCommand({ InstanceIds: [instanceId] });
-    }
-
-    if (actionCommand) {
       await ec2Client.send(actionCommand);
-      return res.status(200).json({ message: `Instance ${action}d successfully`, type: 'success' });
+      return res.status(200).json({ message: `Instance terminated successfully`, type: 'success' });
     }
-
   } catch (error) {
     console.error('Error performing action:', error);
     return res.status(500).json({ message: 'Error performing action', type: 'error' });
