@@ -7,7 +7,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import fs from 'fs/promises';
 import url from 'url';
-import crypto from 'crypto';
+import NodeRSA from 'node-rsa';
 
 
 const ec2Client = new EC2Client({ region: 'eu-central-2' });
@@ -297,35 +297,29 @@ const launchInstance = async (req, res, launchTemplateId) => {
 
 async function getWindowsPassword(instanceId) {
   try {
+      // Read the private key from file
       const privateKeyPath = path.join(__dirname, './instance_access/ec2-instance-manager-windows-password-key.pem');
-      const privateKey = await fs.readFile(privateKeyPath, 'utf8');
+      const privateKeyString = await fs.readFile(privateKeyPath, 'utf8');
+      const privateKey = new NodeRSA(privateKeyString, 'pkcs1');
 
-      const command = new GetPasswordDataCommand({
-          InstanceId: instanceId
-      });
-
+      // Retrieve the encrypted password data
+      const command = new GetPasswordDataCommand({ InstanceId: instanceId });
       const response = await ec2Client.send(command);
 
-      if (response.PasswordData === undefined || response.PasswordData === '') {
+      if (!response.PasswordData) {
           throw new Error('Password data is empty or undefined.');
       }
 
+      // Decrypt the password using node-rsa
       const encryptedPassword = Buffer.from(response.PasswordData, 'base64');
-      let decryptedPassword = crypto.privateDecrypt(
-          {
-              key: privateKey,
-              padding: crypto.constants.RSA_NO_PADDING,
-          },
-          encryptedPassword
-      )
+      const decryptedPassword = privateKey.decrypt(encryptedPassword, 'utf8');
 
-      decryptedPassword = decryptedPassword.toString('utf8');
+      console.log('Decrypted password:', decryptedPassword);
 
-      decryptedPassword = decryptedPassword.substring(decryptedPassword.length - 32);
-      
+      // Extract the actual password from decrypted data (adjust based on actual format)
+      const finalPassword = decryptedPassword.substring(decryptedPassword.length - 32);
 
-      return decryptedPassword;
-
+      return finalPassword;
   } catch (error) {
       console.error('Error retrieving or decrypting password:', error);
       throw error;
@@ -479,14 +473,12 @@ app.get('/api/ec2/get-linux-ssh-key', checkAuth, async (req, res) => {
   const sshKeyName = `${username}-ssh-key.pem`;
 
   try {
-    // Create a GetObjectCommand for the object in S3
     const command = new GetObjectCommand({
       Bucket: S3_BUCKET_NAME,
       Key: sshKeyName,
     });
 
-    // Generate a pre-signed URL for the GetObjectCommand
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL expires in 1 hour
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 20 });
 
     res.json({ downloadUrl: url });
   } catch (error) {

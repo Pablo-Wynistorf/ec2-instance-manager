@@ -158,9 +158,21 @@
 
       document
         .getElementById("downloadSshKeyButton")
-        .addEventListener("click", () => {
-          window.location.href = "/download-ssh-key";
-        });
+        .addEventListener("click", () => downloadSshKey());
+
+        async function downloadSshKey() {
+          const response = await fetch("/api/ec2/get-linux-ssh-key");
+          const downloadData = await response.json();
+
+          const downloadUrl = downloadData.downloadUrl;
+          const link = document.createElement('a');
+          link.href = downloadUrl;
+          link.download = downloadData.filename || 'ssh-key.pem'; 
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+
 
       async function handleLaunch(instanceType) {
         const response = await fetch("/api/ec2/launch", {
