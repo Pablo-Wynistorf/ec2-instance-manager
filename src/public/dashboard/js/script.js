@@ -156,7 +156,15 @@ async function fetchInstances() {
 
             const instanceHtml = `
                 <div class="bg-gray-800 shadow-lg rounded-lg p-6">
-                    <h2 class="text-xl font-semibold mb-2">Instance ID: ${instanceId}</h2>
+                    <h2 class="text-xl font-semibold mb-2">Instance ID: ${instanceId}
+                        <button class="ml-2" onclick="copyToClipboard('${instanceId}')">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-clipboard">
+                                <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                <path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
+                                <path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z" />
+                            </svg>
+                        </button>
+                    </h2>
                     <p class="text-gray-300 mb-2">State: <span class="font-semibold ${
                         state === "running" ? "text-green-400" : "text-red-400"
                     }">${state}</span></p>
@@ -170,8 +178,24 @@ async function fetchInstances() {
                                 : ""
                         }
                     </p>
-                    <p class="text-gray-300 mb-2">Public IP: ${publicIp}</p>
-                    <p class="text-gray-300 mb-2">Private IP: ${privateIp}</p>
+                    <p class="text-gray-300 mb-2">Public IP: ${publicIp}
+                        <button class="ml-2" onclick="copyToClipboard('${publicIp}')">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-clipboard">
+                                <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                <path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
+                                <path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z" />
+                            </svg>
+                        </button>
+                    </p>
+                    <p class="text-gray-300 mb-2">Private IP: ${privateIp}
+                        <button class="ml-2" onclick="copyToClipboard('${privateIp}')">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-clipboard">
+                                <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                <path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
+                                <path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z" />
+                            </svg>
+                        </button>
+                    </p>
                     <p class="text-gray-300 mb-2">Launch Time: ${launchTime}</p>
                     <p class="text-gray-300 mb-2">Instance owner: ${owner}</p>
                     <div class="flex space-x-4 mt-4">
@@ -185,6 +209,24 @@ async function fetchInstances() {
         console.error("Error fetching instances:", error);
     }
 }
+
+function copyToClipboard(text) {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+    new Noty({
+        text: "Copied to clipboard!",
+        type: "success",
+        layout: "bottomRight",
+        timeout: 3000,
+        theme: "metroui",
+        progressBar: true,
+    }).show();
+}
+
 
 
 async function handleAction(instanceId, action) {
@@ -226,6 +268,7 @@ async function handleAction(instanceId, action) {
 function showTerminateModal(instanceId) {
     currentInstanceId = instanceId;
     document.getElementById("terminateModal").style.display = "flex";
+    document.getElementById("modalInstanceId").focus();
 }
 
 function hideTerminateModal() {
