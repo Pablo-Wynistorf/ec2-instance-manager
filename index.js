@@ -65,7 +65,7 @@ async function checkAuth(req, res, next) {
     req.roles = roles;
 
     if (!roles.includes('standardUser') && !roles.includes('adminUser')) {
-      return res.status(403).json({ error: "You are not authorized to access this resource" });
+      return res.redirect('/denied');
     }
 
     next();
@@ -73,6 +73,41 @@ async function checkAuth(req, res, next) {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 }
+
+app.use('/denied', (req, res, next) => {
+  const access_token = req.cookies.access_token;
+
+  if (!access_token) {
+    return next();
+  }
+
+  fetch(OAUTH_USER_INFO_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${access_token}`,
+    },
+  })
+    .then(response => {
+      if (!response.ok) {
+        return next();
+      }
+      return response.json();
+    })
+    .then(userData => {
+      const { roles } = userData;
+
+      if (roles.includes('standardUser') || roles.includes('adminUser')) {
+        return res.redirect('/dashboard');
+      }
+
+      res.sendFile(path.join(__dirname, 'public/denied/index.html'));
+    })
+    .catch(error => {
+      console.error('Error during access check:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    });
+});
 
 // Authenticate endpoint
 app.get('/api/auth', async (req, res) => {

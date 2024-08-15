@@ -14,6 +14,16 @@ function setButtonLoading(buttonId, isLoading) {
         return;
     }
 
+    // Create a container for both the text and the loading icon
+    let textAndIconContainer = button.querySelector(".text-and-icon");
+    if (!textAndIconContainer) {
+        textAndIconContainer = document.createElement("div");
+        textAndIconContainer.classList.add("text-and-icon", "flex", "items-center", "space-x-2");
+        buttonText.parentNode.insertBefore(textAndIconContainer, buttonText);
+        textAndIconContainer.appendChild(buttonText);
+        if (loadingIcon) textAndIconContainer.appendChild(loadingIcon);
+    }
+
     if (isLoading) {
         buttonText.setAttribute("data-original-text", buttonText.textContent);
         buttonText.textContent = "Loading...";
@@ -27,6 +37,7 @@ function setButtonLoading(buttonId, isLoading) {
         button.disabled = false;
     }
 }
+
 
 
 
@@ -110,7 +121,7 @@ async function fetchInstances() {
 
             let actionButtons = "";
             if (state === "running") {
-                actionButtons = `<button id="stop-${instanceId}" onclick="handleAction('${instanceId}', 'stop')" class="bg-red-600 text-gray-100 py-2 px-6 rounded hover:bg-red-700 mt-4">
+                actionButtons = `<button id="stop-${instanceId}" onclick="handleAction('${instanceId}', 'stop')" class="bg-red-600 text-gray-100 py-2 px-3 rounded hover:bg-red-700 mt-4">
                 <span>Stop</span>
                     <svg class="ml-2 w-5 h-5 text-white animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -118,7 +129,7 @@ async function fetchInstances() {
                     </svg>
                 </button>`;
             } else if (state === "stopped") {
-                actionButtons = `<button id="start-${instanceId}" onclick="handleAction('${instanceId}', 'start')" class="bg-green-600 text-gray-100 py-2 px-6 rounded hover:bg-green-700 mt-4">
+                actionButtons = `<button id="start-${instanceId}" onclick="handleAction('${instanceId}', 'start')" class="bg-green-600 text-gray-100 py-2 px-3 rounded hover:bg-green-700 mt-4">
                 <span>Start</span>
                     <svg class="ml-2 w-5 h-5 text-white animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
