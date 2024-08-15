@@ -1,2 +1,2 @@
-/node_modules
-/instance_access/*
+/src/node_modules
+/src/instance_access/*
