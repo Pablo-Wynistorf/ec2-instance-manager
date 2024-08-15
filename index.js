@@ -36,13 +36,22 @@ app.get('/', (req, res) => {
 });
 
 app.use('/dashboard', checkAuth, express.static(path.join(__dirname, 'public/dashboard')));
-app.use('/login', express.static(path.join(__dirname, 'public/login')));
+app.use('/login', redirectWithAccessToken, express.static(path.join(__dirname, 'public/login')));
+
+async function redirectWithAccessToken(req, res, next) {
+  const access_token = req.cookies.access_token;
+  const refresh_token = req.cookies.refresh_token;
+  if (!access_token && !refresh_token) {
+    return next();
+  }
+  res.redirect('/dashboard');
+}
 
 // Check token and roles
 async function checkAuth(req, res, next) {
   const access_token = req.cookies.access_token;
   if (!access_token) {
-    return res.redirect('/login');
+    return res.redirect('/api/auth');
   }
 
   try {
@@ -55,7 +64,7 @@ async function checkAuth(req, res, next) {
     });
 
     if (!checkUserAccess.ok) {
-      return res.redirect('/login');
+      return res.redirect('/api/auth');
     }
 
     const userData = await checkUserAccess.json();
