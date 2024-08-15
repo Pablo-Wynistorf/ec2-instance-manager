@@ -276,10 +276,6 @@ const countUserInstances = async (username) => {
         Name: 'tag:username',
         Values: [username],
       },
-      {
-        Name: 'instance-state-name',
-        Values: ['pending', 'running'],
-      },
     ],
   };
 
@@ -297,13 +293,55 @@ const countUserInstances = async (username) => {
 // Launch EC2 instance
 const launchLinuxInstance = async (req, res, launchTemplateId) => {
   const username = req.username;
-  const sshKeyName = username + '-ssh-key';
+  const roles = req.roles;
+  const sshKeyName = `${username}-ssh-key`;
 
   try {
-    const count = await countUserInstances(username);
+    if (roles.includes('adminUser')) {
+      const params = {
+        LaunchTemplate: {
+          LaunchTemplateId: launchTemplateId,
+        },
+        MinCount: 1,
+        MaxCount: 1,
+        KeyName: sshKeyName,
+        TagSpecifications: [
+          {
+            ResourceType: 'instance',
+            Tags: [
+              {
+                Key: 'username',
+                Value: username,
+              },
+            ],
+          },
+        ],
+      };
 
-    if (count >= 4) {
-      return res.json({ success: false, message: 'You are permitted to launch only four instances at a time' });
+      const command = new RunInstancesCommand(params);
+      await ec2Client.send(command);
+
+      return res.json({ success: true, message: 'Instance launched successfully' });
+    }
+
+    const currentInstanceCount = await countUserInstances(username);
+    let maxAllowedInstances = 0;
+    
+    roles.forEach(role => {
+      const match = role.match(/instanceCount-(\d+)/);
+      if (match) {
+        const instanceLimit = parseInt(match[1], 10);
+        if (instanceLimit > maxAllowedInstances) {
+          maxAllowedInstances = instanceLimit;
+        }
+      }
+    });
+
+    if (currentInstanceCount >= maxAllowedInstances) {
+      return res.json({ 
+        success: false, 
+        message: `You are permitted to launch only ${maxAllowedInstances} instances in your account` 
+      });
     }
 
     const params = {
@@ -338,12 +376,53 @@ const launchLinuxInstance = async (req, res, launchTemplateId) => {
 
 const launchWindowsInstance = async (req, res, launchTemplateId) => {
   const username = req.username;
+  const roles = req.roles;
 
   try {
-    const count = await countUserInstances(username);
+    if (roles.includes('adminUser')) {
+      const params = {
+        LaunchTemplate: {
+          LaunchTemplateId: launchTemplateId,
+        },
+        MinCount: 1,
+        MaxCount: 1,
+        TagSpecifications: [
+          {
+            ResourceType: 'instance',
+            Tags: [
+              {
+                Key: 'username',
+                Value: username,
+              },
+            ],
+          },
+        ],
+      };
 
-    if (count >= 4) {
-      return res.json({ success: false, message: 'You are permitted to launch only four instances at a time' });
+      const command = new RunInstancesCommand(params);
+      await ec2Client.send(command);
+
+      return res.json({ success: true, message: 'Instance launched successfully' });
+    }
+
+    const currentInstanceCount = await countUserInstances(username);
+    let maxAllowedInstances = 0;
+    
+    roles.forEach(role => {
+      const match = role.match(/instanceCount-(\d+)/);
+      if (match) {
+        const instanceLimit = parseInt(match[1], 10);
+        if (instanceLimit > maxAllowedInstances) {
+          maxAllowedInstances = instanceLimit;
+        }
+      }
+    });
+
+    if (currentInstanceCount >= maxAllowedInstances) {
+      return res.json({ 
+        success: false, 
+        message: `You are permitted to launch only ${maxAllowedInstances} instances in your account` 
+      });
     }
 
     const params = {
@@ -370,9 +449,12 @@ const launchWindowsInstance = async (req, res, launchTemplateId) => {
 
     res.json({ success: true, message: 'Instance launched successfully' });
   } catch (error) {
+    console.error('Error launching instance:', error);
     res.json({ success: false, message: 'Error launching instance' });
   }
 };
+
+
 
 
 async function getWindowsPassword(instanceId) {
