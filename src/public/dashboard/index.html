@@ -132,6 +132,19 @@
     </div>
   </div>
 
+  <!-- Edit Instance Name Modal -->
+  <div id="editInstanceNameModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+    <div class="bg-gray-800 rounded-lg shadow-lg p-6 w-full max-w-md">
+       <h2 class="text-xl font-semibold mb-4">Edit Instance Name</h2>
+        <input type="text" id="newInstanceName" class="w-full p-2 mb-4 bg-gray-700 text-gray-100 rounded-md" placeholder="Enter new instance name">
+        <div class="flex justify-end space-x-4">
+            <button id="cancelEditButton" class="bg-gray-600 text-gray-100 px-4 py-2 rounded hover:bg-gray-700">Cancel</button>
+            <button id="confirmEditButton" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Save</button>
+        </div>
+    </div>
+  </div>
+
+
   <!-- Password Modal -->
   <div id="passwordModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-gray-800 text-gray-100 p-6 rounded-lg shadow-lg w-2/4">

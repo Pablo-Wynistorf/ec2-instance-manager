@@ -62,6 +62,27 @@ document.getElementById("downloadSshKeyButton").addEventListener("click", () => 
     downloadSshKey();
 });
 
+document.getElementById("cancelEditButton").addEventListener("click", async () => {
+    hideEditInstanceNameModal();
+});
+
+document.getElementById("confirmEditButton").addEventListener("click", async () => {
+    const newName = document.getElementById("newInstanceName").value;
+    if (!newName) {
+        new Noty({
+            text: "Instance name cannot be empty.",
+            type: "error",
+            layout: "bottomRight",
+            timeout: 5000,
+            theme: "metroui",
+            progressBar: true,
+        }).show();
+        return;
+    }
+    handleAction(currentInstanceId, "rename", newName);
+    hideEditInstanceNameModal();
+});
+
 async function downloadSshKey() {
     const response = await fetch("/api/ec2/get-linux-ssh-key");
     const downloadData = await response.json();
@@ -115,8 +136,8 @@ async function fetchInstances() {
         instances.forEach((instance) => {
             const instanceId = instance.InstanceId;
             const state = instance.State;
-            const instanceName =
-                instance.Tags.find((tag) => tag.Key === "Name")?.Value || "Unnamed";
+            const instanceName = instance.Tags.find((tag) => tag.Key === "Name")?.Value || "Unnamed";
+            const operatingSystem = instance.Tags.find((tag) => tag.Key === "operatingSystem")?.Value || "N/A";
             const publicIp = instance.PublicIpAddress || "N/A";
             const privateIp = instance.PrivateIpAddress || "N/A";
             const launchTime = new Date(instance.LaunchTime).toLocaleString();
@@ -164,12 +185,16 @@ async function fetchInstances() {
                     <p class="text-gray-300 mb-2">State: <span class="font-semibold ${
                         state === "running" ? "text-green-400" : "text-red-400"
                     }">${state}</span></p>
-                    <p class="text-gray-300 mb-2">Name: ${instanceName}</p>
+                    <p class="text-gray-300 mb-2">Name: ${instanceName}
+                        <button class="ml-2" onclick="showEditInstanceNameModal('${instanceId}', '${instanceName}')">
+                            <img src="./assets/edit.svg" alt="Edit Icon" width="16" height="16" />
+                        </button>
+                    </p>
                     <p class="text-gray-300 mb-2">
                         Username: ${
-                            instanceName === "LINUX-INSTANCE"
+                            operatingSystem === "linux"
                                 ? "ubuntu"
-                                : instanceName === "WINDOWS-INSTANCE"
+                                : operatingSystem === "windows"
                                 ? "Administrator"
                                 : ""
                         }
@@ -217,17 +242,36 @@ function copyToClipboard(text) {
 
 
 
-async function handleAction(instanceId, action) {
-    const buttonId = action === "stop" ? `stop-${instanceId}` : `start-${instanceId}`;
+async function handleAction(instanceId, action, newName = null) {
+    let buttonId;
+    if (action === "stop") {
+        buttonId = `stop-${instanceId}`;
+    } else if (action === "start") {
+        buttonId = `start-${instanceId}`;
+    } else if (action === "rename") {
+        buttonId = `rename-${instanceId}`;
+    } else {
+        console.error("Unsupported action:", action);
+        return;
+    }
+
     setButtonLoading(buttonId, true);
 
     try {
+        const bodyData = { instanceId, action };
+
+        if (action === "rename" && newName) {
+            bodyData.newName = newName;
+        }
+
         const response = await fetch("/api/ec2/manage", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ instanceId, action }),
+            body: JSON.stringify(bodyData),
         });
+
         const result = await response.json();
+
         new Noty({
             text: result.message,
             type: result.success ? "success" : "error",
@@ -236,6 +280,7 @@ async function handleAction(instanceId, action) {
             theme: "metroui",
             progressBar: true,
         }).show();
+
         fetchInstances();
     } catch (error) {
         console.error("Error managing instance:", error);
@@ -253,6 +298,7 @@ async function handleAction(instanceId, action) {
 }
 
 
+
 function showTerminateModal(instanceId) {
     currentInstanceId = instanceId;
     document.getElementById("terminateModal").style.display = "flex";
@@ -263,6 +309,21 @@ function hideTerminateModal() {
     document.getElementById("modalInstanceId").value = "";
     document.getElementById("terminateModal").style.display = "none";
 }
+
+let currentInstanceId = null;
+
+function showEditInstanceNameModal(instanceId, currentName) {
+    currentInstanceId = instanceId;
+    document.getElementById("newInstanceName").value = currentName;
+    document.getElementById("editInstanceNameModal").style.display = "flex";
+    document.getElementById("newInstanceName").focus();
+}
+
+function hideEditInstanceNameModal() {
+    document.getElementById("editInstanceNameModal").style.display = "none";
+    document.getElementById("newInstanceName").value = "";
+}
+
 
 async function handleTerminate() {
     setButtonLoading("confirmTerminateButton", true);

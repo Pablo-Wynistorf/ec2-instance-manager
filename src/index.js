@@ -1,5 +1,5 @@
 import express from 'express';
-import { EC2Client, RunInstancesCommand, StartInstancesCommand, StopInstancesCommand, TerminateInstancesCommand, GetPasswordDataCommand, DescribeInstancesCommand, DescribeKeyPairsCommand, CreateKeyPairCommand } from '@aws-sdk/client-ec2';
+import { EC2Client, RunInstancesCommand, StartInstancesCommand, StopInstancesCommand, TerminateInstancesCommand, GetPasswordDataCommand, DescribeInstancesCommand, DescribeKeyPairsCommand, CreateKeyPairCommand, CreateTagsCommand } from '@aws-sdk/client-ec2';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import serverless from 'serverless-http';
@@ -313,6 +313,10 @@ const launchLinuxInstance = async (req, res, launchTemplateId) => {
                 Key: 'username',
                 Value: username,
               },
+              {
+                Key: 'operatingSystem',
+                Value: 'linux',
+              }
             ],
           },
         ],
@@ -359,6 +363,10 @@ const launchLinuxInstance = async (req, res, launchTemplateId) => {
               Key: 'username',
               Value: username,
             },
+            {
+              Key: 'operatingSystem',
+              Value: 'linux',
+            }
           ],
         },
       ],
@@ -394,6 +402,10 @@ const launchWindowsInstance = async (req, res, launchTemplateId) => {
                 Key: 'username',
                 Value: username,
               },
+              {
+                Key: 'operatingSystem',
+                Value: 'windows',
+              }
             ],
           },
         ],
@@ -439,6 +451,10 @@ const launchWindowsInstance = async (req, res, launchTemplateId) => {
               Key: 'username',
               Value: username,
             },
+            {
+              Key: 'operatingSystem',
+              Value: 'windows',
+            }
           ],
         },
       ],
@@ -538,11 +554,11 @@ app.post('/api/ec2/launch', checkAuth, async (req, res) => {
 app.post('/api/ec2/manage', checkAuth, async (req, res) => {
   const username = req.username;
   const roles = req.roles;
-  const { instanceId, action, confirmText } = req.body;
-  const validActions = ['start', 'stop', 'terminate'];
+  const { instanceId, action, confirmText, newName } = req.body;
+  const validActions = ['start', 'stop', 'terminate', 'rename'];
 
   if (!validActions.includes(action)) {
-    return res.status(400).json({ success: false, message: 'Invalid action'});
+    return res.status(400).json({ success: false, message: 'Invalid action' });
   }
 
   try {
@@ -558,22 +574,33 @@ app.post('/api/ec2/manage', checkAuth, async (req, res) => {
       }
     }
 
-    let actionCommand;
     if (action === 'start') {
-      actionCommand = new StartInstancesCommand({ InstanceIds: [instanceId] });
+      const actionCommand = new StartInstancesCommand({ InstanceIds: [instanceId] });
       await ec2Client.send(actionCommand);
-      return res.status(200).json({ success: true, message: `Instance started successfully`});
+      return res.status(200).json({ success: true, message: `Instance started successfully` });
     } else if (action === 'stop') {
-      actionCommand = new StopInstancesCommand({ InstanceIds: [instanceId] });
+      const actionCommand = new StopInstancesCommand({ InstanceIds: [instanceId] });
       await ec2Client.send(actionCommand);
       return res.status(200).json({ success: true, message: `Instance stopped successfully` });
     } else if (action === 'terminate') {
       if (confirmText !== instanceId) {
         return res.status(400).json({ success: false, message: 'Invalid confirmation text' });
       }
-      actionCommand = new TerminateInstancesCommand({ InstanceIds: [instanceId] });
+      const actionCommand = new TerminateInstancesCommand({ InstanceIds: [instanceId] });
       await ec2Client.send(actionCommand);
       return res.status(200).json({ success: true, message: `Instance terminated successfully` });
+    } else if (action === 'rename') {
+      if (!newName || typeof newName !== 'string') {
+        return res.status(400).json({ success: false, message: 'Invalid new name provided' });
+      }
+
+      const tagCommand = new CreateTagsCommand({
+        Resources: [instanceId],
+        Tags: [{ Key: 'Name', Value: newName }],
+      });
+      await ec2Client.send(tagCommand);
+
+      return res.status(200).json({ success: true, message: `Instance renamed to ${newName} successfully` });
     }
   } catch (error) {
     console.error('Error performing action:', error);
