@@ -74,7 +74,7 @@ async function checkAuth(req, res, next) {
     req.roles = roles;
 
     if (!roles.includes('standardUser') && !roles.includes('adminUser')) {
-      return res.redirect('/denied');
+      return res.status(403).json({ error: "Unauthorized" });
     }
 
     next();

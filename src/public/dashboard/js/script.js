@@ -103,6 +103,10 @@ async function handleLaunch(instanceType) {
 async function fetchInstances() {
     try {
         const response = await fetch("/api/ec2/instances");
+        if (response.status === 403) {
+            window.location.href = "/denied";
+            return;
+        }
         if (!response.ok) throw new Error("Failed to fetch instances");
         const instances = await response.json();
         const container = document.getElementById("instances");
