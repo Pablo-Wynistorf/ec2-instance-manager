@@ -284,7 +284,9 @@ const countUserInstances = async (username) => {
   try {
     const command = new DescribeInstancesCommand(params);
     const data = await ec2Client.send(command);
-    const instances = data.Reservations.flatMap(reservation => reservation.Instances);
+    const instances = data.Reservations.flatMap(reservation => 
+      reservation.Instances.filter(instance => instance.State.Name !== 'terminated')
+    );
     return instances.length;
   } catch (error) {
     console.error('Error counting user instances:', error);
