@@ -658,7 +658,7 @@ app.get('/api/ec2/get-linux-ssh-key', checkAuth, async (req, res) => {
       Key: sshKeyName,
     });
 
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 20 });
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 10 });
 
     res.json({ downloadUrl: url });
   } catch (error) {
@@ -682,7 +682,7 @@ app.get('/api/ec2/ssh', checkAuth, async (req, res) => {
       Key: sshKeyName,
     });
 
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 20 });
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 10 });
 
     const base64_encoded_url = Buffer.from(url).toString('base64');
 
