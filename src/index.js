@@ -21,6 +21,8 @@ const VPC_ID = process.env.VPC_ID;
 const LINUX_LAUNCH_TEMPLATE_ID = process.env.LINUX_LAUNCH_TEMPLATE_ID;
 const WINDOWS_LAUNCH_TEMPLATE_ID = process.env.WINDOWS_LAUNCH_TEMPLATE_ID;
 
+const SSH_SESSION_SERVER_URL = process.env.SSH_SESSION_SERVER_URL;
+
 const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID;
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
 const OAUTH_AUTHORIZATION_URL = process.env.OAUTH_AUTHORIZATION_URL;
@@ -665,5 +667,32 @@ app.get('/api/ec2/get-linux-ssh-key', checkAuth, async (req, res) => {
   }
 });
 
+app.get('/api/ec2/ssh', checkAuth, async (req, res) => {
+  const { instanceIp } = req.query;
+  const username = req.username;
+  const sshKeyName = `${username}-ssh-key.pem`;
+
+  if (!instanceIp) {
+    return res.status(400).json({ message: 'Instance ID not provided' });
+  }
+
+  try {
+    const command = new GetObjectCommand({
+      Bucket: S3_BUCKET_NAME,
+      Key: sshKeyName,
+    });
+
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 20 });
+
+    const base64_encoded_url = Buffer.from(url).toString('base64');
+
+    const sshSessionUrl = SSH_SESSION_SERVER_URL + `/connect?hostname=${instanceIp}&username=ubuntu&privateKeyUrl=${base64_encoded_url}`;
+
+    res.redirect(sshSessionUrl);
+  } catch (error) {
+    console.error('Error generating S3 pre-signed URL:', error);
+    res.status(500).json({ error: 'You have no access to this ressource' });
+  }
+});
 
 export const handler = serverless(app);

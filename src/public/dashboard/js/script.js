@@ -169,6 +169,12 @@ async function fetchInstances() {
                 `;
             }
 
+            if (state === "running") {
+                actionButtons += `
+                    <button onclick="startSshSession('${publicIp}')" class="bg-white text-black py-2 px-4 rounded hover:bg-gray-200 mt-4">Start SSH Session</button>
+                `;
+            }
+
             if (instanceName === "WINDOWS-INSTANCE") {
                 actionButtons += `
                     <button onclick="showPasswordModal('${instanceId}')" class="bg-white text-black py-2 px-4 rounded hover:bg-gray-200 mt-4">Show Password</button>
@@ -417,6 +423,10 @@ async function showPasswordModal(instanceId) {
             progressBar: true,
         }).show();
     }
+}
+
+function startSshSession(publicIp) {
+    window.open(`/api/ec2/ssh?instanceIp=${publicIp}`, '_blank');
 }
 
 document.getElementById("copyPasswordButton").addEventListener("click", () => {
