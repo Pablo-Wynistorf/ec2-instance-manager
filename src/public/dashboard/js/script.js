@@ -171,7 +171,7 @@ async function fetchInstances() {
 
             if (state === "running") {
                 actionButtons += `
-                    <button onclick="startSshSession('${publicIp}')" class="bg-white text-black py-2 px-4 rounded hover:bg-gray-200 mt-4">Start SSH Session</button>
+                    <button onclick="startSshSession('${instanceId}')" class="bg-white text-black py-2 px-4 rounded hover:bg-gray-200 mt-4">Start SSH Session</button>
                 `;
             }
 
@@ -425,8 +425,8 @@ async function showPasswordModal(instanceId) {
     }
 }
 
-function startSshSession(publicIp) {
-    window.open(`/api/ec2/ssh?instanceIp=${publicIp}`, '_blank');
+function startSshSession(instanceId) {
+    window.open(`/api/ec2/ssh?instanceId=${instanceId}`, '_blank');
 }
 
 document.getElementById("copyPasswordButton").addEventListener("click", () => {

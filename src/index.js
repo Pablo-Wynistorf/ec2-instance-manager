@@ -670,31 +670,63 @@ app.get('/api/ec2/get-linux-ssh-key', checkAuth, async (req, res) => {
 });
 
 app.get('/api/ec2/ssh', checkAuth, async (req, res) => {
-  const { instanceIp } = req.query;
+  const { instanceId } = req.query;
   const username = req.username;
-  const sshKeyName = `${username}-ssh-key.pem`;
+  const roles = req.roles;
 
-  if (!instanceIp) {
+  if (!instanceId) {
     return res.status(400).json({ message: 'Instance ID not provided' });
   }
 
   try {
+    let instanceData;
+    let instanceIp;
+    let usernameTag;
+
+    if (!roles.includes('adminUser')) {
+      const describeCommand = new DescribeInstancesCommand({ InstanceIds: [instanceId] });
+      instanceData = await ec2Client.send(describeCommand);
+      const instance = instanceData.Reservations[0].Instances[0];
+      const tags = instance.Tags;
+      instanceIp = instance.PublicIpAddress;
+      usernameTag = tags.find(tag => tag.Key === 'username');
+
+      if (!usernameTag || usernameTag.Value !== username) {
+        return res.status(401).json({ message: 'Unauthorized action', type: 'error' });
+      }
+    } else {
+      const describeCommand = new DescribeInstancesCommand({ InstanceIds: [instanceId] });
+      instanceData = await ec2Client.send(describeCommand);
+      instanceIp = instanceData.Reservations[0].Instances[0].PublicIpAddress;
+      usernameTag = instanceData.Reservations[0].Instances[0].Tags.find(tag => tag.Key === 'username');
+    }
+
+    if (!instanceIp) {
+      return res.status(404).json({ message: 'Instance IP not available' });
+    }
+
+    const sshKeyName = `${usernameTag.Value}-ssh-key.pem`;
     const command = new GetObjectCommand({
       Bucket: S3_BUCKET_NAME,
       Key: sshKeyName,
     });
 
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 10 });
+    try {
+      const url = await getSignedUrl(s3Client, command, { expiresIn: 10 });
+      const base64_encoded_url = Buffer.from(url).toString('base64');
+      const sshSessionUrl = `${SSH_SESSION_SERVER_URL}/connect?hostname=${instanceIp}&username=ubuntu&privateKeyUrl=${base64_encoded_url}`;
 
-    const base64_encoded_url = Buffer.from(url).toString('base64');
+      res.redirect(sshSessionUrl);
+    } catch (error) {
+      console.error('Error generating S3 pre-signed URL:', error);
+      return res.status(500).json({ error: 'Error generating SSH key URL' });
+    }
 
-    const sshSessionUrl = SSH_SESSION_SERVER_URL + `/connect?hostname=${instanceIp}&username=ubuntu&privateKeyUrl=${base64_encoded_url}`;
-
-    res.redirect(sshSessionUrl);
   } catch (error) {
-    console.error('Error generating S3 pre-signed URL:', error);
-    res.status(500).json({ error: 'You have no access to this ressource' });
+    console.error('Error describing EC2 instance:', error);
+    return res.status(500).json({ error: 'Error retrieving EC2 instance data' });
   }
 });
 
 export const handler = serverless(app);
+
