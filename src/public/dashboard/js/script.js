@@ -191,6 +191,7 @@ async function fetchInstances() {
                     <p class="text-gray-300 mb-2">State: <span class="font-semibold ${
                         state === "running" ? "text-green-400" : "text-red-400"
                     }">${state}</span></p>
+                    <p class="text-gray-300 mb-2">Operating System: ${operatingSystem}</p>
                     <p class="text-gray-300 mb-2">Name: ${instanceName}
                         <button class="ml-2" onclick="showEditInstanceNameModal('${instanceId}', '${instanceName}')">
                             <img src="./assets/edit.svg" alt="Edit Icon" width="16" height="16" />
