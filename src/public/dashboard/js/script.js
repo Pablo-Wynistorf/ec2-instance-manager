@@ -140,9 +140,11 @@ async function fetchInstances() {
             const operatingSystem = instance.Tags.find((tag) => tag.Key === "operatingSystem")?.Value || "N/A";
             const publicIp = instance.PublicIpAddress || "N/A";
             const privateIp = instance.PrivateIpAddress || "N/A";
-            const launchTime = new Date(instance.LaunchTime).toLocaleString();
-            const owner =
-                instance.Tags.find((tag) => tag.Key === "username")?.Value || "N/A";
+            const launchTime = new Date(instance.LaunchTime);
+            const owner = instance.Tags.find((tag) => tag.Key === "username")?.Value || "N/A";
+
+            const currentTime = new Date();
+            const timeSinceLaunch = (currentTime - launchTime) / 1000;
 
             let actionButtons = "";
             if (state === "running") {
@@ -169,7 +171,7 @@ async function fetchInstances() {
                 `;
             }
 
-            if (state === "running" && operatingSystem === "linux") {
+            if (state === "running" && operatingSystem === "linux" && timeSinceLaunch > 30) {
                 actionButtons += `
                     <button onclick="startSshSession('${instanceId}')" class="bg-white text-black py-2 px-4 rounded hover:bg-gray-200 mt-4">Start SSH Session</button>
                 `;
@@ -216,7 +218,7 @@ async function fetchInstances() {
                             <img src="./assets/copy.svg" alt="Copy Icon" width="16" height="16" />
                         </button>
                     </p>
-                    <p class="text-gray-300 mb-2">Launch Time: ${launchTime}</p>
+                    <p class="text-gray-300 mb-2">Launch Time: ${launchTime.toLocaleString()}</p>
                     <p class="text-gray-300 mb-2">Instance owner: ${owner}</p>
                     <div class="flex space-x-4 mt-4">
                         ${actionButtons}
@@ -229,6 +231,7 @@ async function fetchInstances() {
         console.error("Error fetching instances:", error);
     }
 }
+
 
 function copyToClipboard(text) {
     const textarea = document.createElement("textarea");
