@@ -76,7 +76,7 @@ async function checkAuth(req, res, next) {
     req.roles = roles;
 
     if (!roles.includes('standardUser') && !roles.includes('adminUser')) {
-      return res.status(403).json({ error: "Unauthorized" });
+      return res.redirect('/denied');
     }
 
     next();
@@ -196,7 +196,7 @@ app.get('/callback', async (req, res) => {
       return res.status(403).redirect("/api/auth");
     }
 
-    const { username } = await userDataResponse.json();
+    const { username, roles } = await userDataResponse.json();
     const sshKeyName = `${username}-ssh-key`;
 
     res.cookie('access_token', access_token, { httpOnly: true, maxAge: 50 * 60 * 1000 });
@@ -206,8 +206,13 @@ app.get('/callback', async (req, res) => {
       const { KeyPairs } = await ec2Client.send(new DescribeKeyPairsCommand({ KeyNames: [sshKeyName] }));
       
       if (KeyPairs.length > 0) {
+        if (roles.includes('standardUser')) {
         return res.redirect('/dashboard');
+        }
+        else {
+          return res.redirect('/denied');
       }
+    }
     } catch (err) {
       if (err.name !== 'InvalidKeyPair.NotFound') {
         console.error('Error checking SSH key:', err);
@@ -230,7 +235,12 @@ app.get('/callback', async (req, res) => {
       ]);
 
       await fs.unlink(keyFilePath);
-      return res.redirect('/dashboard');
+      if (roles.includes('standardUser')) {
+        return res.redirect('/dashboard');
+      }
+      else {
+        return res.redirect('/denied');
+      }
     } catch (err) {
       console.error('Error creating or uploading SSH key:', err);
       return res.status(500).json({ error: "Internal Server Error" });
