@@ -89,7 +89,7 @@ app.use('/denied', (req, res, next) => {
   const access_token = req.cookies.access_token;
 
   if (!access_token) {
-    return next();
+    return res.redirect('/login');
   }
 
   fetch(OAUTH_USER_INFO_URL, {
