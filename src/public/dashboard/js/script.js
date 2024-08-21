@@ -169,13 +169,13 @@ async function fetchInstances() {
                 `;
             }
 
-            if (state === "running") {
+            if (state === "running" && operatingSystem === "linux") {
                 actionButtons += `
                     <button onclick="startSshSession('${instanceId}')" class="bg-white text-black py-2 px-4 rounded hover:bg-gray-200 mt-4">Start SSH Session</button>
                 `;
             }
 
-            if (instanceName === "WINDOWS-INSTANCE") {
+            if (operatingSystem === "windows") {
                 actionButtons += `
                     <button onclick="showPasswordModal('${instanceId}')" class="bg-white text-black py-2 px-4 rounded hover:bg-gray-200 mt-4">Show Password</button>
                 `;
