@@ -1,5 +1,20 @@
 import express from 'express';
-import { EC2Client, RunInstancesCommand, StartInstancesCommand, StopInstancesCommand, TerminateInstancesCommand, GetPasswordDataCommand, DescribeInstancesCommand, DescribeKeyPairsCommand, CreateKeyPairCommand, CreateTagsCommand } from '@aws-sdk/client-ec2';
+import { 
+  EC2Client, 
+  RunInstancesCommand, 
+  StartInstancesCommand, 
+  StopInstancesCommand, 
+  TerminateInstancesCommand, 
+  GetPasswordDataCommand, 
+  DescribeInstancesCommand, 
+  DescribeKeyPairsCommand, 
+  CreateKeyPairCommand, 
+  CreateTagsCommand,
+  DescribeSecurityGroupsCommand,
+  CreateSecurityGroupCommand,
+  AuthorizeSecurityGroupIngressCommand,
+  ModifyInstanceAttributeCommand
+} from '@aws-sdk/client-ec2';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import serverless from 'serverless-http';
@@ -203,6 +218,8 @@ app.get('/callback', async (req, res) => {
     res.cookie('refresh_token', refresh_token, { httpOnly: true, maxAge: 20 * 24 * 60 * 60 * 1000 });
 
     try {
+      const securityGroupId = await ensureSecurityGroupExists(username, VPC_ID);
+      console.log(`Security group ID: ${securityGroupId}`);
       const { KeyPairs } = await ec2Client.send(new DescribeKeyPairsCommand({ KeyNames: [sshKeyName] }));
       
       if (KeyPairs.length > 0) {
@@ -304,8 +321,87 @@ const countUserInstances = async (username) => {
   }
 };
 
+async function ensureSecurityGroupExists(username, vpcId) {
+  const sgName = `${username}-sg`;
+  
+  try {
+    const describeParams = {
+      Filters: [
+        {
+          Name: 'group-name',
+          Values: [sgName],
+        },
+        {
+          Name: 'vpc-id',
+          Values: [vpcId],
+        },
+      ],
+    };
+
+    const describeCommand = new DescribeSecurityGroupsCommand(describeParams);
+    const describeResponse = await ec2Client.send(describeCommand);
+
+    if (describeResponse.SecurityGroups.length > 0) {
+      return describeResponse.SecurityGroups[0].GroupId;
+    }
+
+    const createParams = {
+      GroupName: sgName,
+      Description: `Security group for ${username}`,
+      VpcId: vpcId,
+    };
+
+    const createCommand = new CreateSecurityGroupCommand(createParams);
+    const createResponse = await ec2Client.send(createCommand);
+    const securityGroupId = createResponse.GroupId;
+
+    const ingressParams = {
+      GroupId: securityGroupId,
+      IpPermissions: [
+        {
+          IpProtocol: '-1',
+          FromPort: -1,
+          ToPort: -1,
+          UserIdGroupPairs: [
+            {
+              GroupId: securityGroupId,
+            },
+          ],
+        },
+      ],
+    };
+    
+
+    const authorizeCommand = new AuthorizeSecurityGroupIngressCommand(ingressParams);
+    await ec2Client.send(authorizeCommand);
+
+    return securityGroupId;
+  } catch (error) {
+    return console.error(`Error ensuring security group exists: ${error.message}`);
+  }
+}
+
+// Attach security group to instance
+const attachSecurityGroupToInstance = async (instanceId, securityGroupId, attachedSecurityGroupIds) => {
+  try {
+    const updatedSecurityGroupIds = [...attachedSecurityGroupIds, securityGroupId];
+
+    const params = {
+      InstanceId: instanceId,
+      Groups: updatedSecurityGroupIds,
+    };
+    const command = new ModifyInstanceAttributeCommand(params);
+    await ec2Client.send(command);
+
+    console.log(`Security group ${securityGroupId} attached to instance ${instanceId} successfully.`);
+  } catch (error) {
+    console.error(`Failed to attach security group to instance ${instanceId}:`, error);
+  }
+};
+
+
 // Launch EC2 instance
-const launchLinuxInstance = async (req, res, launchTemplateId) => {
+const launchLinuxInstance = async (req, res, launchTemplateId, securityGroupId) => {
   const username = req.username;
   const roles = req.roles;
   const sshKeyName = `${username}-ssh-key`;
@@ -337,7 +433,11 @@ const launchLinuxInstance = async (req, res, launchTemplateId) => {
       };
 
       const command = new RunInstancesCommand(params);
-      await ec2Client.send(command);
+      const instanceData = await ec2Client.send(command);
+      const instanceId = instanceData.Instances[0].InstanceId;
+      const attachedSecurityGroupIds = instanceData.Instances[0].SecurityGroups.map(group => group.GroupId);
+
+      await attachSecurityGroupToInstance(instanceId, securityGroupId, attachedSecurityGroupIds);
 
       return res.json({ success: true, message: 'Instance launched successfully' });
     }
@@ -387,7 +487,11 @@ const launchLinuxInstance = async (req, res, launchTemplateId) => {
     };
 
     const command = new RunInstancesCommand(params);
-    await ec2Client.send(command);
+    const instanceData = await ec2Client.send(command);
+    const instanceId = instanceData.Instances[0].InstanceId;
+    const attachedSecurityGroupIds = instanceData.Instances[0].SecurityGroups.map(group => group.GroupId);
+
+    await attachSecurityGroupToInstance(instanceId, securityGroupId, attachedSecurityGroupIds);
 
     res.json({ success: true, message: 'Instance launched successfully' });
   } catch (error) {
@@ -396,7 +500,8 @@ const launchLinuxInstance = async (req, res, launchTemplateId) => {
   }
 };
 
-const launchWindowsInstance = async (req, res, launchTemplateId) => {
+
+const launchWindowsInstance = async (req, res, launchTemplateId, securityGroupId) => {
   const username = req.username;
   const roles = req.roles;
 
@@ -426,7 +531,11 @@ const launchWindowsInstance = async (req, res, launchTemplateId) => {
       };
 
       const command = new RunInstancesCommand(params);
-      await ec2Client.send(command);
+      const instanceData = await ec2Client.send(command);
+      const instanceId = instanceData.Instances[0].InstanceId;
+      const attachedSecurityGroupIds = instanceData.Instances[0].SecurityGroups.map(group => group.GroupId);
+
+      await attachSecurityGroupToInstance(instanceId, securityGroupId, attachedSecurityGroupIds);
 
       return res.json({ success: true, message: 'Instance launched successfully' });
     }
@@ -475,7 +584,11 @@ const launchWindowsInstance = async (req, res, launchTemplateId) => {
     };
 
     const command = new RunInstancesCommand(params);
-    await ec2Client.send(command);
+    const instanceData = await ec2Client.send(command);
+    const instanceId = instanceData.Instances[0].InstanceId;
+    const attachedSecurityGroupIds = instanceData.Instances[0].SecurityGroups.map(group => group.GroupId);
+
+    await attachSecurityGroupToInstance(instanceId, securityGroupId, attachedSecurityGroupIds);
 
     res.json({ success: true, message: 'Instance launched successfully' });
   } catch (error) {
@@ -483,6 +596,7 @@ const launchWindowsInstance = async (req, res, launchTemplateId) => {
     res.json({ success: false, message: 'Error launching instance' });
   }
 };
+
 
 
 
@@ -554,15 +668,41 @@ app.get('/api/ec2/instances', checkAuth, async (req, res) => {
 // Launch EC2 instance
 app.post('/api/ec2/launch', checkAuth, async (req, res) => {
   const instanceType = req.body.instanceType;
+  const username = req.username;
+  const securityGroupName = `${username}-sg`;
 
-  if (instanceType === 'linux') {
-    await launchLinuxInstance(req, res, LINUX_LAUNCH_TEMPLATE_ID);
-  } else if (instanceType === 'windows') {
-    await launchWindowsInstance(req, res, WINDOWS_LAUNCH_TEMPLATE_ID);
-  } else {
-    return res.json({ success: false, message: 'Invalid instance type' });
+  try {
+    const securityGroupParams = {
+      Filters: [
+        {
+          Name: 'group-name',
+          Values: [securityGroupName],
+        },
+      ],
+    };
+
+    const describeSGCommand = new DescribeSecurityGroupsCommand(securityGroupParams);
+    const securityGroupData = await ec2Client.send(describeSGCommand);
+
+    if (securityGroupData.SecurityGroups.length === 0) {
+      return res.json({ success: false, message: 'Security Group not found, please contact a Administrator' });
+    }
+
+    const securityGroupId = securityGroupData.SecurityGroups[0].GroupId;
+
+    if (instanceType === 'linux') {
+      await launchLinuxInstance(req, res, LINUX_LAUNCH_TEMPLATE_ID, securityGroupId);
+    } else if (instanceType === 'windows') {
+      await launchWindowsInstance(req, res, WINDOWS_LAUNCH_TEMPLATE_ID, securityGroupId);
+    } else {
+      return res.json({ success: false, message: 'Invalid instance type' });
+    }
+  } catch (error) {
+    console.error('Error launching instance or fetching Security Group:', error);
+    return res.json({ success: false, message: 'Error launching instance or fetching Security Group' });
   }
 });
+
 
 // Manage EC2 instance
 app.post('/api/ec2/manage', checkAuth, async (req, res) => {

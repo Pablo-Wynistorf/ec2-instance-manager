@@ -5,15 +5,19 @@
             "Sid": "VisualEditor0",
             "Effect": "Allow",
             "Action": [
-                "ec2:GetPasswordData",
+                "ec2:AuthorizeSecurityGroupIngress",
                 "ec2:DescribeInstances",
                 "ec2:TerminateInstances",
-                "ec2:StartInstances",
-                "ec2:DescribeKeyPairs",
+                "ec2:CreateKeyPair",
                 "ec2:CreateTags",
                 "ec2:RunInstances",
                 "ec2:StopInstances",
-                "ec2:CreateKeyPair"
+                "ec2:DescribeSecurityGroups",
+                "ec2:GetPasswordData",
+                "ec2:StartInstances",
+                "ec2:CreateSecurityGroup",
+                "ec2:ModifyInstanceAttribute",
+                "ec2:DescribeKeyPairs"
             ],
             "Resource": "*",
             "Condition": {
