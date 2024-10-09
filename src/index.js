@@ -158,10 +158,9 @@ app.get('/api/auth', async (req, res) => {
       }
 
       const data = await response.json();
-      const { access_token, refresh_token } = data;
+      const { access_token } = data;
 
       res.cookie('access_token', access_token, { httpOnly: true, maxAge: 50 * 60 * 1000 });
-      res.cookie('refresh_token', refresh_token, { httpOnly: true, maxAge: 20 * 24 * 60 * 60 * 1000 });
 
       return res.redirect('/dashboard');
     } catch (error) {
